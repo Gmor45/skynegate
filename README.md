@@ -148,3 +148,44 @@ point 5 — and the fix for either is a matched case added to the self-test, not
 a claim that it got smarter.
 
 It fails open on every error path, exactly like the two hooks above it.
+
+## And it refuses a push to main
+
+`.claude/hooks/no_push_to_main.py`, a `PreToolUse` hook on `Bash`. House rule 1
+— never push to `main` — is the most expensive rule in the estate and, until
+this file, the one with the weakest mechanism behind it: a paragraph. Pushing
+to `main` fires up to five workflows; a branch with no PR fires none. Getting
+it wrong produced a real Actions overage, ~3,580 minutes against 3,000
+included, which Garrett paid for. Rule 1 even records itself being broken by
+the session that wrote it, hours later, on a one-line doc edit.
+
+**Why this one blocks when `delegate_reminder.py` only reminds.** Both came out
+of the same conversation and the difference is the point. "Is this task
+mechanical enough for Haiku?" is a judgement, so a reminder is the honest
+ceiling. "Does this shell command push to main?" is a string, so it can be
+refused outright — rule 21's top rung, which this rule qualified for and
+nothing had claimed.
+
+It refuses the shapes that do not look like a push to main at a glance —
+`HEAD:main`, `+main`, `refs/heads/main`, `--delete main`, `cd x && git push
+origin main`, and a bare `git push` while HEAD is on a protected branch — and
+deliberately allows everything whose destination is not protected. The case
+that matters most is `git push origin main-refactor`: a substring match on
+"main" blocks a real branch, and a gate that blocks real work is a gate that
+gets deleted. Every one of those is a fixture in the self-test, both
+directions.
+
+```bash
+python3 .claude/hooks/no_push_to_main.py --self-test          # 42 checks
+python3 .claude/hooks/no_push_to_main.py --check "git push origin main"
+```
+
+**No override, on purpose.** There is no environment variable that switches it
+off, because Claude could set one and the gate would be decoration. The refusal
+text names the branch-and-PR path instead, so the next move is obvious.
+
+**What it cannot see.** It reads the Bash tool's command string, so a push made
+some other way — inside a script it invokes, through a git alias, via an MCP or
+API call, or from Garrett's own desktop obsidian-git backups — is invisible to
+it. It also fails open on an unparsable command. This narrows the failure; it
+does not close it.
