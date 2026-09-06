@@ -105,3 +105,130 @@ is stated rather than hidden — rule 21 point 5.
 
 It fails open on every error path — no stdin, no transcript path, an unwritable
 state directory, a half-written line — so it can never trap a session.
+
+## It also carries a mechanical-task reminder and a Haiku subagent
+
+Garrett asked (2026-09-05) for a way to route mechanical work — moving files,
+running a script, formatting, applying an already-decided edit, sweeping one
+change across many files — to a cheaper model automatically, the way he
+assumed an MCP tool could. It can't: `anthropics/claude-code#17772` is still
+open, and no hook or MCP primitive can initiate a model switch or spawn a
+subagent on its own. What a hook CAN do is the half that actually was missing:
+not the switching, the *noticing*. Rule 2 already names these tells in prose;
+they were re-judged from scratch every turn, which is `convention-no-mechanism`
+— the estate's largest measured failure class.
+
+**`.claude/agents/haiku-mechanic.md`** — a subagent pinned to `model: haiku`,
+scoped as `load-house-rules:haiku-mechanic` once this plugin is installed
+(plugins auto-discover an `agents/` directory the same way they discover
+`hooks/` and `skills/`). Its own instructions tell it to execute exactly what
+it was asked, report counts rather than impressions, stop and ask rather than
+guess at anything ambiguous, and never touch git — that stays with whichever
+session spawned it.
+
+**`.claude/hooks/delegate_reminder.py`**, a `UserPromptSubmit` hook. On every
+prompt it scans for rule 2's own mechanical tells (a fixed phrase list lifted
+verbatim from the rule, not a guessed vocabulary) and, on a hit, adds one line
+of context naming the subagent as an option — suppressed if the same prompt
+also carries one of rule 2's "up" tells (architecture, design, 3+ conflicting
+constraints), and shown once per session so it nags nobody.
+
+```bash
+python3 .claude/hooks/delegate_reminder.py --self-test              # 17 checks
+python3 .claude/hooks/delegate_reminder.py --check "some prompt text"
+```
+
+**What this is not.** It is a reminder, never a router. Nothing here decides
+FOR Claude Code to delegate — that call is still made in the turn that reads
+the reminder, same as rule 2a always was. And the match is a keyword scan, not
+semantic understanding: it will miss a mechanical-shaped prompt phrased
+differently, and it will occasionally fire on a prompt that only mentions one
+of these words in passing. Both are named here rather than hidden — rule 21
+point 5 — and the fix for either is a matched case added to the self-test, not
+a claim that it got smarter.
+
+It fails open on every error path, exactly like the two hooks above it.
+
+## And it refuses a push to main
+
+`.claude/hooks/no_push_to_main.py`, a `PreToolUse` hook on `Bash`. House rule 1
+— never push to `main` — is the most expensive rule in the estate and, until
+this file, the one with the weakest mechanism behind it: a paragraph. Pushing
+to `main` fires up to five workflows; a branch with no PR fires none. Getting
+it wrong produced a real Actions overage, ~3,580 minutes against 3,000
+included, which Garrett paid for. Rule 1 even records itself being broken by
+the session that wrote it, hours later, on a one-line doc edit.
+
+**Why this one blocks when `delegate_reminder.py` only reminds.** Both came out
+of the same conversation and the difference is the point. "Is this task
+mechanical enough for Haiku?" is a judgement, so a reminder is the honest
+ceiling. "Does this shell command push to main?" is a string, so it can be
+refused outright — rule 21's top rung, which this rule qualified for and
+nothing had claimed.
+
+It refuses the shapes that do not look like a push to main at a glance —
+`HEAD:main`, `+main`, `refs/heads/main`, `--delete main`, `cd x && git push
+origin main`, and a bare `git push` while HEAD is on a protected branch — and
+deliberately allows everything whose destination is not protected. The case
+that matters most is `git push origin main-refactor`: a substring match on
+"main" blocks a real branch, and a gate that blocks real work is a gate that
+gets deleted. Every one of those is a fixture in the self-test, both
+directions.
+
+```bash
+python3 .claude/hooks/no_push_to_main.py --self-test          # 42 checks
+python3 .claude/hooks/no_push_to_main.py --check "git push origin main"
+```
+
+**No override, on purpose.** There is no environment variable that switches it
+off, because Claude could set one and the gate would be decoration. The refusal
+text names the branch-and-PR path instead, so the next move is obvious.
+
+**What it cannot see.** It reads the Bash tool's command string, so a push made
+some other way — inside a script it invokes, through a git alias, via an MCP or
+API call, or from Garrett's own desktop obsidian-git backups — is invisible to
+it. It also fails open on an unparsable command. This narrows the failure; it
+does not close it.
+
+## And it keeps Garrett's exact words across a compaction
+
+`.claude/hooks/precompact_snapshot.py`, registered twice — as `PreCompact` and
+as `SessionStart` with `matcher: "compact"`.
+
+House rules already named this failure precisely: *"Past a certain size a
+chat's earlier turns get summarised. A handoff written after that is a summary
+of a summary, and what goes first is precision — exact field names, measured
+counts, and his exact words. That is the part nobody can reconstruct later."*
+There is a hook that fires at exactly that moment, and nothing used it. It was
+found by enumerating the platform's 33 hook events from the docs rather than
+from memory (`skyne/data/surfaces.json`).
+
+**It does not summarise, and that is the design.** Compaction is already a
+summariser; a hook firing just before it that writes its own summary has
+preserved nothing. So it copies Garrett's turns verbatim, and when it has to
+cut, it **drops whole turns and counts them** rather than paraphrasing. An
+honest gap beats a smooth reconstruction. It also keeps the measured numbers
+from his own words and the files this session wrote.
+
+**Why a pair.** `PreCompact` can deny and observe but *cannot inject context* —
+so a snapshot written by it alone is a file nobody opens, which is this
+estate's measured failure mode (226 pins captured and never resurfaced).
+`SessionStart` with `matcher: "compact"` re-fires after compaction and can
+inject, so it prints where the snapshot is and what is in it. Neither half is
+useful alone, which is why they are one file and why CI asserts both stay
+registered.
+
+**It never blocks.** `PreCompact` is allowed to refuse a compaction; this
+doesn't, ever. Stranding a session with a full context window and no way
+forward is strictly worse than a lost nuance — the same argument
+`model_switch.py` makes for leaving `PreModelSwitch`'s block unused.
+
+```bash
+python3 .claude/hooks/precompact_snapshot.py --self-test   # 19 checks
+python3 .claude/hooks/precompact_snapshot.py --announce    # what the next context sees
+```
+
+**What it cannot do.** It preserves a category — his words — not an importance
+judgement, because judging importance is precisely what goes wrong under
+compaction. Snapshots live under `~/.claude/skyne/precompact/`, so they are
+per-machine and do not travel to another surface.

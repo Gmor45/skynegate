@@ -18,6 +18,12 @@ jobs:
         run: python3 .claude/hooks/reply_gate.py --self-test
       - name: Turn counter self-test
         run: python3 .claude/hooks/turn_counter.py --self-test
+      - name: Delegate reminder self-test
+        run: python3 .claude/hooks/delegate_reminder.py --self-test
+      - name: Push-to-main blocker self-test
+        run: python3 .claude/hooks/no_push_to_main.py --self-test
+      - name: Pre-compaction snapshot self-test
+        run: python3 .claude/hooks/precompact_snapshot.py --self-test
       - name: Manifests are valid JSON and register the hook
         run: |
           python3 - <<'PY'
@@ -31,6 +37,47 @@ jobs:
           # fires in every session on every surface. A hook that stops being
           # registered looks exactly like one that never existed.
           assert any("turn_counter.py" in c for c in cmds), "turn counter not registered"
+          # Rule 2's mechanical-task reminder — same argument, a different
+          # hook event. A hook removed from hooks.json still passes its own
+          # --self-test, so the self-test alone cannot catch de-registration.
+          prompt_cmds = [x["command"] for g in h["hooks"].get("UserPromptSubmit", [])
+                         for x in g["hooks"]]
+          assert any("delegate_reminder.py" in c for c in prompt_cmds), (
+              "delegate_reminder not registered as a UserPromptSubmit hook")
+          # Rule 1's gate. Registered under PreToolUse/Bash rather than Stop,
+          # and de-registering it looks exactly like never having had it.
+          pre_cmds = [x["command"] for g in h["hooks"].get("PreToolUse", [])
+                      for x in g["hooks"]]
+          assert any("no_push_to_main.py" in c for c in pre_cmds), (
+              "push-to-main blocker not registered as a PreToolUse hook")
+          assert any(g.get("matcher") == "Bash" for g in h["hooks"].get("PreToolUse", [])), (
+              "the PreToolUse group must match Bash or the gate never sees a command")
+          # The compaction pair. Both halves must stay registered: PreCompact
+          # writes the snapshot and CANNOT inject, so without the
+          # SessionStart(compact) half it is a file nobody ever opens.
+          assert any("precompact_snapshot.py" in c for c in
+                     [x["command"] for g in h["hooks"].get("PreCompact", [])
+                      for x in g["hooks"]]), "PreCompact half not registered"
+          starts = h["hooks"].get("SessionStart", [])
+          assert any(g.get("matcher") == "compact"
+                     and any("precompact_snapshot.py" in x["command"] and "--announce" in x["command"]
+                             for x in g["hooks"])
+                     for g in starts), (
+              "the SessionStart(compact) announce half is not registered — the "
+              "snapshot would be written and never read")
+          # The subagent the reminder points at. A reminder naming an agent
+          # that does not exist is worse than no reminder.
+          import os
+          agent_path = ".claude/agents/haiku-mechanic.md"
+          assert os.path.isfile(agent_path), f"missing {agent_path}"
+          agent_head = open(agent_path, encoding="utf-8").read(600)
+          assert "name: haiku-mechanic" in agent_head, f"{agent_path} has no frontmatter name"
+          assert "model: haiku" in agent_head, f"{agent_path} is not pinned to haiku"
+          import sys
+          sys.path.insert(0, ".claude/hooks")
+          import delegate_reminder as _dr
+          assert "load-house-rules:haiku-mechanic" in _dr.MESSAGE, (
+              "reminder message must name the agent's actual scoped subagent_type")
           json.load(open(".claude/.claude-plugin/plugin.json"))
           json.load(open("gmor45-skills/.claude-plugin/plugin.json"))
           mkt = json.load(open(".claude-plugin/marketplace.json"))
