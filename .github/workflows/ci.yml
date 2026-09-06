@@ -48,6 +48,7 @@ jobs:
               "delegate_reminder not registered as a UserPromptSubmit hook")
           # Rule 1's gate. Registered under PreToolUse/Bash rather than Stop,
           # and de-registering it looks exactly like never having had it.
+          import os
           pre_cmds = [x["command"] for g in h["hooks"].get("PreToolUse", [])
                       for x in g["hooks"]]
           assert any("no_push_to_main.py" in c for c in pre_cmds), (
@@ -69,6 +70,18 @@ jobs:
           # rather than relying on the group existing.
           assert any("shell_shapes.py" in c for c in pre_cmds), (
               "shell_shapes not registered as a PreToolUse hook")
+          # The golden corpus shell_shapes.py is frozen against. It is the only
+          # thing that catches a FALSE-POSITIVE drift against skyne's copy of
+          # the same detector -- 28 of its 34 rows must stay silent -- and the
+          # self-test checks its sha, so editing it on one side only fails that
+          # side. If the file goes missing the self-test crashes rather than
+          # passes, but assert it here too so the reason is named.
+          corpus = ".claude/hooks/shell-shapes-corpus.json"
+          assert os.path.isfile(corpus), f"missing {corpus}"
+          _c = json.load(open(corpus))
+          assert len([r for r in _c["cases"] if not r["expect"]]) >= 25, (
+              "the corpus lost its must-stay-silent rows, which are the half "
+              "that catches false-positive drift")
           # It must WARN, never block: three of rule 29's five misses are in
           # commit-message text where a backtick is sometimes wanted, so a
           # refusal here would be the coarse gate house-rules 21 point 5

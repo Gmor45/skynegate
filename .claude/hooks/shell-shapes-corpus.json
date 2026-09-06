@@ -1,0 +1,201 @@
+{
+  "$comment": [
+    "Golden corpus for house-rules 29's shell-shape detection. TWO implementations",
+    "must agree with every row: skyne/scripts/check_shell_shapes.py and",
+    "skynegate/.claude/hooks/shell_shapes.py. The hook cannot import the script",
+    "(the plugin must run standalone; skyne is private), so this file is the single",
+    "definition of the behaviour instead.",
+    "Each repo's own self-test checks its implementation against these rows AND",
+    "checks this file's sha256 against a constant in the code -- so editing the",
+    "corpus on one side only fails that side, which is what forces both to move.",
+    "Cases are hand-authored: one destination is a PUBLIC repo, so nothing here is",
+    "lifted from a private one. They are shapes, not borrowed content.",
+    "DO NOT hand-edit. Regenerate with scripts/build_shell_corpus.py, which refuses",
+    "to write unless both implementations already agree on every row."
+  ],
+  "cases": [
+    {
+      "why": "the 2026-08-30 miss",
+      "command": "git commit -m \"ran `trail.py agreement` and it held\"",
+      "expect": [
+        "backtick-in-interpolating-context"
+      ]
+    },
+    {
+      "why": "the 2026-09-01 miss",
+      "command": "x.py --add --evidence \"a real query, `whois.py Duras`, reports 93 lines\"",
+      "expect": [
+        "backtick-in-interpolating-context"
+      ]
+    },
+    {
+      "why": "the 2026-08-29 heredoc miss",
+      "command": "changelog.py add --body \"$(cat <<EOF\nsee `pin_tools.py`\nEOF\n)\"",
+      "expect": [
+        "backtick-in-interpolating-context",
+        "unquoted-heredoc-delimiter"
+      ]
+    },
+    {
+      "why": "the 2026-08-29 cd miss",
+      "command": "cd ../Gartera-Vault; git checkout main",
+      "expect": [
+        "cd-not-chained-with-and"
+      ]
+    },
+    {
+      "why": "the && rewrite",
+      "command": "cd ../Gartera-Vault && git checkout main",
+      "expect": []
+    },
+    {
+      "why": "quoted heredoc, the surviving half",
+      "command": "git commit -q -F - <<'MSG'\nran `trail.py agreement`\nMSG",
+      "expect": []
+    },
+    {
+      "why": "the -C rewrite",
+      "command": "git -C ../Gartera-Vault status -s",
+      "expect": []
+    },
+    {
+      "why": "$( ) is recommended, never flagged",
+      "command": "echo \"today is $(date -u +%Y-%m-%d)\"",
+      "expect": []
+    },
+    {
+      "why": "escaped backtick, literal text",
+      "command": "echo \"Version \\`1.2.0\\` built\"",
+      "expect": []
+    },
+    {
+      "why": "backtick in a # comment",
+      "command": "# `|| true` so a failure reports below\nout=$(curl -s x)",
+      "expect": []
+    },
+    {
+      "why": "single quotes are inert",
+      "command": "echo 'a `backtick` inside single quotes'",
+      "expect": []
+    },
+    {
+      "why": "# inside ${} is expansion, not a comment",
+      "command": "grep \"${name#prefix}\" file",
+      "expect": []
+    },
+    {
+      "why": "quoted format string",
+      "command": "git log --format='%an | %s' origin/main..origin/branch",
+      "expect": []
+    },
+    {
+      "why": "rule 19's dating command",
+      "command": "TZ=America/New_York date \"+%Y-%m-%d %H:%M %Z\"",
+      "expect": []
+    },
+    {
+      "why": "double-quoted python -c",
+      "command": "python3 -c \"import json; print(json.load(open('x')))\"",
+      "expect": []
+    },
+    {
+      "why": "plain git",
+      "command": "git diff --stat origin/main HEAD -- CHANGELOG.md",
+      "expect": []
+    },
+    {
+      "why": "a pipe",
+      "command": "grep -rn \"pattern\" . | head -20",
+      "expect": []
+    },
+    {
+      "why": "a loop with $f",
+      "command": "for f in *.py; do python3 -m py_compile \"$f\"; done",
+      "expect": []
+    },
+    {
+      "why": "&& and ||",
+      "command": "test -f x && echo yes || echo no",
+      "expect": []
+    },
+    {
+      "why": "$( ) then ; -- no cd, so clean",
+      "command": "VAR=$(git rev-parse HEAD); echo \"$VAR\"",
+      "expect": []
+    },
+    {
+      "why": "sed with double quotes",
+      "command": "sed -i \"s/a/b/\" file.txt",
+      "expect": []
+    },
+    {
+      "why": "% and a bare $VAR",
+      "command": "echo \"cost is 100% of $BUDGET\"",
+      "expect": []
+    },
+    {
+      "why": "absolute cd, chained",
+      "command": "cd /abs/path && make",
+      "expect": []
+    },
+    {
+      "why": "the bare failing shape",
+      "command": "cd x; ls",
+      "expect": [
+        "cd-not-chained-with-and"
+      ]
+    },
+    {
+      "why": "quoted cd, chained",
+      "command": "cd \"$HOME/x\" && ls",
+      "expect": []
+    },
+    {
+      "why": "a cd INSIDE a quoted string, not executed",
+      "command": "echo \"cd x; ls\"",
+      "expect": []
+    },
+    {
+      "why": "quoted heredoc, backtick inert",
+      "command": "cat <<'EOF'\nliteral `text` here\nEOF",
+      "expect": []
+    },
+    {
+      "why": "unquoted heredoc, nothing to interpolate",
+      "command": "cat <<EOF\nplain text, no substitution chars\nEOF",
+      "expect": []
+    },
+    {
+      "why": "unquoted heredoc with $( )",
+      "command": "cat <<EOF\nvalue is $(date)\nEOF",
+      "expect": [
+        "unquoted-heredoc-delimiter"
+      ]
+    },
+    {
+      "why": "quoted python heredoc",
+      "command": "python3 - <<'PY'\nprint('`x`')\nPY",
+      "expect": []
+    },
+    {
+      "why": "empty",
+      "command": "",
+      "expect": []
+    },
+    {
+      "why": "whitespace only",
+      "command": "   ",
+      "expect": []
+    },
+    {
+      "why": "shortest real command",
+      "command": "ls",
+      "expect": []
+    },
+    {
+      "why": "an apostrophe inside double quotes",
+      "command": "echo \"unterminated single quote: it's fine\"",
+      "expect": []
+    }
+  ]
+}
