@@ -97,7 +97,10 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
+import os
 import re
 import sys
 
@@ -115,6 +118,52 @@ FIXES = {
 }
 
 _HEREDOC = re.compile(r"<<-?\s*(?P<q>['\"]?)(?P<tag>[A-Za-z_][A-Za-z0-9_]*)(?P=q)")
+
+
+# --- the golden corpus, shared with the OTHER implementation -----------------
+# House-rules 29 is enforced by two copies of this logic: skyne's
+# scripts/check_shell_shapes.py and skynegate's .claude/hooks/shell_shapes.py.
+# The hook cannot import the script -- the plugin must run on a machine with
+# only itself installed, and skyne is private -- so the copies can drift.
+#
+# Both self-tests were already built from the same five real misses, which
+# catches a drift that breaks DETECTION. It does not catch a drift in
+# FALSE-POSITIVE handling, and that is the drift that gets a check switched
+# off rather than noticed. This corpus closes that: 28 of its 34 rows are
+# commands that must stay SILENT.
+#
+# The sha is checked too. Editing the corpus on one side only changes its hash
+# and fails THAT side's own CI, which is what forces both to move together --
+# no network, no cross-repo read, works with one repo private.
+CORPUS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shell-shapes-corpus.json")
+CORPUS_SHA = "ff184d223ca94651323723f9bb9b1c78b70af67724fdcd916abfd2e777b934eb"
+
+
+def corpus_rows(path=None):
+    """(rows, sha) from the golden corpus file."""
+    path = path or CORPUS_PATH
+    raw = io.open(path, encoding="utf-8").read()
+    return json.loads(raw)["cases"], hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def corpus_failures(rows=None, path=None):
+    """Rows this implementation disagrees with. Empty list means in sync.
+
+    Takes `rows` so the self-test can hand it a deliberately-wrong expectation
+    and prove the comparator still REPORTS. Without that, blinding the
+    comparison here makes it vacuous and every assertion still passes -- which
+    is the "a check that matches nothing reads exactly like a clean run"
+    failure this estate has already paid for. Measured: the first version of
+    this function let both of its own mutations SURVIVE.
+    """
+    if rows is None:
+        rows, _ = corpus_rows(path)
+    out = []
+    for r in rows:
+        got = sorted({f["shape"] for f in scan(r["command"])})
+        if got != r["expect"]:
+            out.append({"why": r["why"], "expected": r["expect"], "got": got})
+    return out
 
 
 def _strip_inert(s: str) -> str:
@@ -351,6 +400,30 @@ def self_test() -> int:
           "and carries the PreToolUse shape recent builds read")
     check("permissionDecision" not in json.dumps(got),
           "it must NOT carry a permissionDecision -- that is what would block")
+
+
+    # --- the golden corpus: the ONLY thing that catches false-positive drift
+    # between this implementation and the other one. ---
+    rows, sha = corpus_rows()
+    check(sha == CORPUS_SHA,
+          f"the corpus file is the one this code was frozen against "
+          f"(sha {sha[:12]} vs {CORPUS_SHA[:12]}) -- if this fails, the corpus "
+          f"moved on ONE side only; sync both repos, do not just bump the sha")
+    fails_c = corpus_failures()
+    check(not fails_c,
+          f"all {len(rows)} corpus rows agree with this implementation"
+          + (f" -- MISMATCH: {fails_c[:3]}" if fails_c else ""))
+    # The comparator must be able to SAY NO. Without this, blinding the
+    # comparison above passes silently -- both of this check's own mutations
+    # survived the first version for exactly that reason.
+    planted = [dict(rows[0], expect=["a-shape-that-cannot-exist"])]
+    check(len(corpus_failures(rows=planted)) == 1,
+          "the comparator reports a mismatch when one is planted -- proving it "
+          "compares at all, rather than passing because it looked at nothing")
+    silent = [r for r in rows if not r["expect"]]
+    check(len(silent) >= 25,
+          f"the corpus still carries enough MUST-STAY-SILENT rows to catch "
+          f"false-positive drift (got {len(silent)})")
 
     print("self-test: PASS" if not fails else f"self-test: {len(fails)} FAILURE(S)")
     return 1 if fails else 0
