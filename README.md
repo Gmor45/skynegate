@@ -232,3 +232,21 @@ python3 .claude/hooks/precompact_snapshot.py --announce    # what the next conte
 judgement, because judging importance is precisely what goes wrong under
 compaction. Snapshots live under `~/.claude/skyne/precompact/`, so they are
 per-machine and do not travel to another surface.
+
+## A CI run can complete with zero jobs — that is not the same as a check failing
+
+Measured 2026-09-06, on this exact branch. PR #24's head commit (`34ab6f1b`)
+has a completed `ci` run (#43, a `push` event) whose `conclusion` is
+`failure`, but `list_workflow_jobs` on it returns **zero jobs**, and its
+`created_at`, `run_started_at` and `updated_at` are all the identical instant.
+That is the shape of a run that failed before scheduling anything — not the
+promise suite catching a real bug. GitHub also refused to let it be rerun
+(`403 This workflow run cannot be retried`), and the base branch had no new
+commits to merge in as a way to force a fresh `synchronize` event.
+
+The sibling `skyne` repo's PR #277 shows the same absence one step further:
+its last four commits on the identically-named branch have **no workflow run
+at all** — `list_workflow_jobs`/check-runs return zero, not merely a failure.
+Neither is diagnosed to a root cause yet; both are filed here rather than
+assumed fixed, and this commit's own push is the fresh trigger being used to
+find out whether the promise suite actually runs and passes on this branch.
