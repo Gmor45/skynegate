@@ -296,7 +296,57 @@ def is_trivial(text):
     return words(text) < TRIVIAL_WORDS
 
 
-def evaluate(text, tools=None, require_block=True):
+# --- house-rules 3, and the mechanism it owed --------------------------------
+# Rule 3: "Say when the chat should end, and write the handoff first", and in
+# its own words: "Telling him to start a new chat without running the skill is
+# the failure, not the fix." It has failed twice with nothing making it fire --
+# a nine-hour session on 2026-08-26 told Garrett to start a new chat FOUR times
+# and produced no handoff, and on 2026-09-06 a session recommended a fresh chat
+# in three consecutive closing blocks before running it. That second one put
+# rule 3 into mechanism debt by name, which is what this closes.
+#
+# Deliberately narrow. It fires only on an explicit recommendation to START a
+# new chat or END this one -- not on the word "chat", not on mentioning the
+# handoff, and never once a handoff has actually run this session. A gate that
+# fired on ordinary talk about chats would be the coarse gate house-rules 21
+# point 5 forbids, so the self-test carries more negatives than positives.
+ENDS_THE_CHAT = [
+    r"start(?:ing)?\s+a\s+(?:fresh|new)\s+chat",
+    r"open(?:ing)?\s+a\s+(?:fresh|new)\s+chat",
+    r"a\s+(?:fresh|new)\s+chat\s+(?:is|would be|makes sense)",
+    r"(?:good|cheapest|right)\s+(?:point|time|moment)\s+to\s+stop",
+    r"end\s+(?:this|the)\s+chat",
+    r"wrap\s+(?:this|it)\s+up\s+here",
+]
+
+
+def recommends_new_chat(text):
+    """True when the reply tells Garrett to end this chat or start another."""
+    low = (text or "").lower()
+    return any(re.search(rx, low) for rx in ENDS_THE_CHAT)
+
+
+def handoff_ran(entries):
+    """True when THIS SESSION has actually invoked the handoff skill.
+
+    Scans the whole transcript, not the turn: rule 3 is a session property.
+    Fails SAFE by returning True on anything it cannot read, because the cost
+    of a false block (a trapped session) is far worse than the cost of a
+    missed nag -- every other path in this file makes the same trade.
+    """
+    if not entries:
+        return True
+    try:
+        for e in entries:
+            blob = json.dumps(e)
+            if '"Skill"' in blob and "handoff" in blob:
+                return True
+    except (TypeError, ValueError):
+        return True
+    return False
+
+
+def evaluate(text, tools=None, require_block=True, handoff_done=True):
     """Return a list of complaints. Empty list == the reply passes.
 
     Pure and transcript-free so the self-test exercises the real thing rather
@@ -324,6 +374,18 @@ def evaluate(text, tools=None, require_block=True):
             "words is exempt), or say nothing at all"
             % (words(text), TRIVIAL_WORDS)
         ]
+
+    # house-rules 3. Placed here, after the echo check and before the shape
+    # checks, for the same reason 0b is: telling a reply that should have run
+    # the handoff to fix its heading order is the wrong instruction.
+    if not handoff_done and recommends_new_chat(text):
+        problems.append(
+            "this reply tells Garrett to end the chat or start a new one, and "
+            "/handoff has not run this session. House-rules 3: 'Telling him to "
+            "start a new chat without running the skill is the failure, not the "
+            "fix.' Run the handoff skill first, then say it — or drop the "
+            "recommendation from this reply"
+        )
 
     # AI-isms: whole reply, not just the block. Reported alongside whatever
     # else is wrong rather than short-circuiting — a reply can be both
@@ -782,6 +844,56 @@ def self_test():
         import shutil as _shutil
         _shutil.rmtree(tmp_home, ignore_errors=True)
 
+
+    # ---- house-rules 3: the handoff gate -----------------------------------
+    # Rule 6c applied to this check: the NEGATIVES are the point. A gate that
+    # fired on ordinary talk about chats gets switched off, so there are more
+    # must-stay-silent cases here than firing ones.
+    _end = SAMPLE_BODY + ("\n**What I did**\nx\n**Why**\ny\n"
+                          "**Recommendations**\n- Start a fresh chat.\n"
+                          "**TLDR**\nz\n")
+    ok = any("handoff" in g for g in evaluate(_end, handoff_done=False))
+    print("  %-34s %s" % ('rule 3: no handoff is refused', "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append('recommending a fresh chat with no handoff must be refused')
+    ok = not any("handoff" in g for g in evaluate(_end, handoff_done=True))
+    print("  %-34s %s" % ('rule 3: passes once handoff ran', "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append('the same reply must pass once the handoff has run')
+
+    _quiet = [
+        (SAMPLE_BODY + "\n**What I did**\nRan /handoff and filed it.\n"
+         "**Why**\ny\n**TLDR**\nz\n", "merely naming the handoff"),
+        (SAMPLE_BODY + "\n**What I did**\nRead the chat log.\n**Why**\ny\n"
+         "**TLDR**\nz\n", "the word chat on its own"),
+        (SAMPLE_BODY + "\n**What I did**\nFixed the new chat window bug.\n"
+         "**Why**\ny\n**TLDR**\nz\n", "'new chat' as a feature being worked on"),
+    ]
+    ok = not any(any("handoff" in g for g in evaluate(t, handoff_done=False)) for t, _ in _quiet)
+    print("  %-34s %s" % ('rule 3 stays silent on 3 negatives', "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append('the gate fired on ordinary talk about chats -- that gets it turned off')
+    ok = recommends_new_chat("this is a good point to stop")
+    print("  %-34s %s" % ("rule 3 catches 'good point to stop'", "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("'good point to stop' is the same recommendation in other words")
+    ok = not recommends_new_chat("the chat is running long but carry on")
+    print("  %-34s %s" % ('rule 3 ignores a mere observation', "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append('observing the chat is long is not recommending it end')
+    ok = handoff_ran([]) is True and handoff_ran([{"x": object()}]) is True
+    print("  %-34s %s" % ('handoff_ran fails SAFE when unreadable', "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append('an unreadable transcript must fail safe -- a trapped session is worse')
+    ok = handoff_ran([{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Skill", "input": {"skill": "handoff"}}]}}]) is True
+    print("  %-34s %s" % ('handoff_ran sees a real Skill call', "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append('a real Skill(handoff) call must be detected')
+    ok = handoff_ran([{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}]}}]) is False
+    print("  %-34s %s" % ('PLANTED: it reports NOT done', "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append('PLANTED case: an unrelated transcript must report NOT done, proving the scan can say no rather than returning True for any reason')
+
     if fails:
         print("\nFAILED:")
         for f in fails:
@@ -807,7 +919,8 @@ def run():
         trivial = is_trivial(text)
         since_last = None if trivial else turns_since_block(path)
         require_block = (not trivial) and since_last >= COOLDOWN_TURNS
-        problems = evaluate(text, tools_used(entries, b), require_block=require_block)
+        problems = evaluate(text, tools_used(entries, b), require_block=require_block,
+                            handoff_done=handoff_ran(entries))
         print("reply words: %d" % words(text))
         print("tools this turn: %s" % (sorted(tools_used(entries, b)) or "none"))
         print("cooldown: since_last=%s require_block=%s (this is a DRY RUN -- "
@@ -842,7 +955,8 @@ def run():
     since_last = None if trivial else turns_since_block(transcript_path)
     require_block = (not trivial) and since_last >= COOLDOWN_TURNS
 
-    problems = evaluate(text, tools_used(entries, boundary), require_block=require_block)
+    problems = evaluate(text, tools_used(entries, boundary), require_block=require_block,
+                        handoff_done=handoff_ran(entries))
     if not problems:
         if not trivial:
             record_cooldown(transcript_path, since_last, require_block)
