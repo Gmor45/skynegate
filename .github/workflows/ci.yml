@@ -52,6 +52,15 @@ jobs:
               "push-to-main blocker not registered as a PreToolUse hook")
           assert any(g.get("matcher") == "Bash" for g in h["hooks"].get("PreToolUse", [])), (
               "the PreToolUse group must match Bash or the gate never sees a command")
+          # solved_guard, same argument one more time — and this one has a
+          # measured reason beyond symmetry. On 2026-09-05 a session added it
+          # by rewriting hooks.json from a branch cut before the push-to-main
+          # blocker landed; the JSON line-merged with NO CONFLICT and silently
+          # dropped the Bash matcher entirely. The check below caught it. A
+          # registration assertion per hook is what makes that loud instead of
+          # invisible.
+          assert any("solved_guard.py" in c for c in pre_cmds), (
+              "solved_guard not registered as a PreToolUse hook")
           # The compaction pair. Both halves must stay registered: PreCompact
           # writes the snapshot and CANNOT inject, so without the
           # SessionStart(compact) half it is a file nobody ever opens.
@@ -106,4 +115,4 @@ jobs:
               f"{b} has drifted from {a} — re-copy it, do not hand-edit either")
           print("manifests ok; Stop hook registered; 6 pointer skills present; "
                 "wherewasi paste copy in sync")
-          PY
+PY
