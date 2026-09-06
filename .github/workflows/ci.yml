@@ -127,4 +127,4 @@ jobs:
               f"{b} has drifted from {a} — re-copy it, do not hand-edit either")
           print("manifests ok; Stop hook registered; 6 pointer skills present; "
                 "wherewasi paste copy in sync")
-PY
+          PY
