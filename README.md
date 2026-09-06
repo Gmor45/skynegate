@@ -189,3 +189,46 @@ some other way — inside a script it invokes, through a git alias, via an MCP o
 API call, or from Garrett's own desktop obsidian-git backups — is invisible to
 it. It also fails open on an unparsable command. This narrows the failure; it
 does not close it.
+
+## And it keeps Garrett's exact words across a compaction
+
+`.claude/hooks/precompact_snapshot.py`, registered twice — as `PreCompact` and
+as `SessionStart` with `matcher: "compact"`.
+
+House rules already named this failure precisely: *"Past a certain size a
+chat's earlier turns get summarised. A handoff written after that is a summary
+of a summary, and what goes first is precision — exact field names, measured
+counts, and his exact words. That is the part nobody can reconstruct later."*
+There is a hook that fires at exactly that moment, and nothing used it. It was
+found by enumerating the platform's 33 hook events from the docs rather than
+from memory (`skyne/data/surfaces.json`).
+
+**It does not summarise, and that is the design.** Compaction is already a
+summariser; a hook firing just before it that writes its own summary has
+preserved nothing. So it copies Garrett's turns verbatim, and when it has to
+cut, it **drops whole turns and counts them** rather than paraphrasing. An
+honest gap beats a smooth reconstruction. It also keeps the measured numbers
+from his own words and the files this session wrote.
+
+**Why a pair.** `PreCompact` can deny and observe but *cannot inject context* —
+so a snapshot written by it alone is a file nobody opens, which is this
+estate's measured failure mode (226 pins captured and never resurfaced).
+`SessionStart` with `matcher: "compact"` re-fires after compaction and can
+inject, so it prints where the snapshot is and what is in it. Neither half is
+useful alone, which is why they are one file and why CI asserts both stay
+registered.
+
+**It never blocks.** `PreCompact` is allowed to refuse a compaction; this
+doesn't, ever. Stranding a session with a full context window and no way
+forward is strictly worse than a lost nuance — the same argument
+`model_switch.py` makes for leaving `PreModelSwitch`'s block unused.
+
+```bash
+python3 .claude/hooks/precompact_snapshot.py --self-test   # 19 checks
+python3 .claude/hooks/precompact_snapshot.py --announce    # what the next context sees
+```
+
+**What it cannot do.** It preserves a category — his words — not an importance
+judgement, because judging importance is precisely what goes wrong under
+compaction. Snapshots live under `~/.claude/skyne/precompact/`, so they are
+per-machine and do not travel to another surface.
