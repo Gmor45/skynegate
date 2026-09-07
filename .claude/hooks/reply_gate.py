@@ -141,10 +141,17 @@ BANNED_IN_SUMMARY = [
     # mechanisms to Garrett: "I dont understand the concept of what you did
     # stuff for." The two words below carried the most weight in it.
     "protocol", "mutation",
-    # 2026-09-07. The block itself read "Because you were in the denominator."
-    # Rule 0a requires the block be plain English with no jargon, and rule 0 is
-    # the most-broken rule in the ledger (11 misses, zero recorded wins) — this
-    # is the vocabulary that broke it. "confound" rode along in the same reply.
+    # 2026-09-07. Garrett: "Narrator? You mean the model? I'm confused." It is
+    # Skyne Quest's internal design word for the model that writes the story
+    # prose, lifted straight out of DESIGN.md into a reply without being
+    # translated. Rule 0a's standing instruction is that a word he asks the
+    # meaning of joins this list in the same turn.
+    "narrator",
+    # 2026-09-07, a second session the same hour and the same reflex. The block
+    # read "Because you were in the denominator." Rule 0a requires the block be
+    # plain English with no jargon, and rule 0 is the most-broken rule in the
+    # ledger (11 misses, zero recorded wins) — this is the vocabulary that broke
+    # it. "confound" rode along in the same reply.
     "denominator", "confound",
 ]
 
