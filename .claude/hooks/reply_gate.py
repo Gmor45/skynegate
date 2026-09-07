@@ -207,6 +207,19 @@ BANNED_ANYWHERE = [
 # Section markers, in required order. Recommendations is optional by design —
 # mandating it would manufacture filler recommendations, which is noise, and
 # noise is what he tunes out.
+# 2026-09-07. Garrett, on correctly-shaped blocks: "the what I did and why isn't
+# always helpful because I still have to ask hey what is this thing related to?"
+# `What I did` names an ACTION with no SUBJECT, so a true sentence is one he
+# cannot place -- and a block that sends him scrolling has failed at the one job
+# it has. The `About` line names the thing before anything is said about it.
+# "About" is an ordinary English word, unlike "What I did" or "TLDR", so this
+# marker REQUIRES the bold (or a heading rule) and must sit adjacent to the
+# block. Measured before tightening: the body line "About half the runs were
+# flaky." satisfied the requirement and the whole reply passed with no About
+# line at all -- a check that green-lights the real failure, which house-rules
+# 21 point 5 calls worse than none. Both shapes are self-test cases below.
+ABOUT_RE = re.compile(r"^\s*(?:\*\*|#{1,4}\s)\s*about\b", re.I)
+ABOUT_MAX_GAP = 8   # lines it may sit above "What I did" before it is body text
 WHAT_RE = re.compile(r"^\W*\**\s*what i (did|found|changed)\b", re.I)
 WHY_RE = re.compile(r"^\W*\**\s*why\b", re.I)
 TLDR_RE = re.compile(r"^\W*\**\s*tl;?dr\b", re.I)
@@ -426,6 +439,39 @@ def unfollowable_tier_change(text):
     return None
 
 
+# 2026-09-07. Rule 2a's amendment. Garrett: "when you're recommending a model
+# switch do you actually give me the time to change the model before you keep
+# working? I don't think you do." He is right, and the rule's own wording proved
+# it: both sanctioned phrasings end "for this" / "for this one", which NAME the
+# current task -- the one already being spent. A recommendation that names the
+# turn it appears in cannot apply to it.
+#
+# So this fires ONLY on the false claim: a reply that recommends a tier change,
+# in a turn that already did work, while saying the change applies to THIS one.
+# It never fires on a call made before the work (which is the shape rule 2a now
+# asks for), and never when the turn's tools are unknown -- it fails open.
+CLAIMS_THIS_TURN = re.compile(
+    r"\bfor (this|this one|the rest of this)\b", re.I)
+
+
+def tier_call_on_a_spent_turn(text, tools):
+    """The rule 2a-window complaint, or None."""
+    if tools is None:
+        return None                      # unknown turn: fail open, never trap
+    if not recommends_tier_change(text or ""):
+        return None
+    if not CLAIMS_THIS_TURN.search(text or ""):
+        return None                      # aimed at the next turn: honest
+    if not (set(tools) - NO_WORK_TOOLS):
+        return None                      # nothing spent yet: "for this" is true
+    return ("this reply tells Garrett to switch tier *for this* turn, but the turn "
+            "already did the work — so the switch cannot apply to it and the line "
+            "reads as noise. Rule 2a (amended 2026-09-07): make the call BEFORE the "
+            "work and stop, or aim it at the next task by name. Measured: 0 of 2 "
+            "calls followed in the session that found this, and neither could have "
+            "been.")
+
+
 def handoff_ran(entries):
     """True when THIS SESSION has actually invoked the handoff skill.
 
@@ -487,6 +533,10 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True):
             "recommendation from this reply"
         )
 
+    spent = tier_call_on_a_spent_turn(text, tools)
+    if spent:
+        problems.append(spent)
+
     # house-rules 2a: a tier recommendation he cannot type is not a
     # recommendation. See unfollowable_tier_change() for the measured failure.
     tier = unfollowable_tier_change(text)
@@ -511,10 +561,18 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True):
         return problems
 
     lines = text.splitlines()
+    i_about = find_line(text, ABOUT_RE)
     i_what = find_line(text, WHAT_RE)
     i_why = find_line(text, WHY_RE)
     i_tldr = find_line(text, TLDR_RE)
 
+    if i_about < 0:
+        problems.append('no "**About**" line — name the SUBJECT in his vocabulary '
+                        '(a thing, not a task, and never a filename) before saying '
+                        'what you did to it')
+    elif 0 <= i_what and not (0 <= i_what - i_about <= ABOUT_MAX_GAP):
+        problems.append('the "**About**" line is not attached to the block — it must '
+                        'sit directly above "What I did", not adrift in the body')
     if i_what < 0:
         problems.append('no "**What I did**" section')
     if i_why < 0:
@@ -526,10 +584,10 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True):
         return problems
 
     # Order matters: the block is one landing zone, not three scattered bits.
-    if not (i_what < i_why < i_tldr):
+    if not (i_about < i_what < i_why < i_tldr):
         problems.append(
             "the closing sections are out of order — it must run "
-            "What I did -> Why -> (Recommendations) -> TLDR, together at the end"
+            "About -> What I did -> Why -> (Recommendations) -> TLDR, together at the end"
         )
 
     # TWO Recommendations sections is the shape this actually catches, and the
@@ -601,11 +659,13 @@ def build_reason(problems, attempt, require_block=True):
     body = "\n".join("  - " + p for p in problems)
     shape = (
         "\nRequired shape, at the very END of your reply, in this order:\n"
+        "  **About** - what this concerns, in HIS words: a thing, not a task\n"
         "  **What I did** - plain English, no jargon\n"
         "  **Why** - plain English, no jargon\n"
         "  **Recommendations** - only if you actually have some, each with its reason\n"
         "  **TLDR** - one line\n"
-        "Reading those four alone must be enough to know what happened. "
+        "Reading those alone must be enough to know what happened AND what "
+        "it was about. "
         "Keep the detailed body above them; do not delete it and do not "
         "summarise it away."
     )
@@ -708,7 +768,8 @@ SAMPLE_BODY = (
 )
 
 GOOD = SAMPLE_BODY + (
-    "\n**What I did**\n"
+    "\n**About** the turn counter on your session board\n\n"
+    "**What I did**\n"
     "- Fixed a counter that kept starting over.\n"
     "- Ran the tests twice; both passed.\n\n"
     "**Why**\n"
@@ -798,11 +859,12 @@ def self_test():
     # that only ever fires.
     _f = "filler word " * 90
     _dup = ("Body.\n\n## Recommendations\n\n- a\n\n---\n\n"
+            "**About** the thing.\n\n"
             "**What I did** — d.\n\n**Why** — w. " + _f +
             "\n\n**Recommendations** — r.\n\n**TLDR** — t.\n")
-    _one = ("Body. " + _f + "\n\n**What I did** — d.\n\n**Why** — w.\n\n"
+    _one = ("Body. " + _f + "\n\n**About** the thing.\n\n**What I did** — d.\n\n**Why** — w.\n\n"
             "**Recommendations** — r.\n\n**TLDR** — t.\n")
-    _none = ("Body. " + _f + "\n\n**What I did** — d.\n\n**Why** — w.\n\n"
+    _none = ("Body. " + _f + "\n\n**About** the thing.\n\n**What I did** — d.\n\n**Why** — w.\n\n"
              "**TLDR** — t.\n")
     expect("two Recommendations sections fail", _dup, False)
     expect("one, inside the block, passes", _one, True)
@@ -826,15 +888,59 @@ def self_test():
         print("  %-34s %s" % (name, "ok" if ok else "FAIL"))
 
     expect_t("echo-only turn is caught", ECHO_REPLY, {"ReadNotifications"}, False)
-    expect_t("...and it passed on shape alone", ECHO_REPLY, None, True)
-    expect_t("echo + real work is exempt", ECHO_REPLY,
-             {"ReadNotifications", "Bash"}, True)
+    # ECHO_REPLY is the REAL 150-word reply, kept verbatim as a historical
+    # record, so it predates the About line and now fails on that too. The two
+    # assertions below were written to prove the ECHO check is what catches it
+    # -- not the shape check -- so they assert the absence of the echo
+    # complaint rather than a clean pass, which is the claim they always made.
+    def no_echo_complaint(tools):
+        return not any("one line" in c or "did no work" in c
+                       for c in evaluate(ECHO_REPLY, tools))
+    _ok = no_echo_complaint(None)
+    print("  %-34s %s" % ("...shape alone never catches it", "ok" if _ok else "FAIL"))
+    if not _ok:
+        fails.append("the echo reply must be caught by the ECHO check, not by shape")
+    _ok = no_echo_complaint({"ReadNotifications", "Bash"})
+    print("  %-34s %s" % ("echo + real work is exempt", "ok" if _ok else "FAIL"))
+    if not _ok:
+        fails.append("a turn that did real work must never draw the echo complaint")
     expect_t("one-line echo is fine", "All four echo my own actions; nothing to do.",
              {"ReadNotifications"}, True)
     expect_t("no tools recorded falls back to shape", GOOD, set(), True)
 
     # The regression this gate exists to stop: each required section must fail
     # the gate on its own when dropped, or the gate is one that only ever passes.
+    # 2026-09-07: About is required, and its absence must be caught by NAME --
+    # otherwise the block goes back to being an action with no subject.
+    expect("missing About is caught",
+           "\n".join(l for l in GOOD.splitlines() if not ABOUT_RE.search(l)), False)
+    expect("About present passes", GOOD, True)
+    # PLANTED, and measured as a real hole before the marker required the bold:
+    # this exact reply passed with no About line at all.
+    expect("a bare body line starting 'About' is NOT an About line",
+           "About half the runs were flaky.\n\n" + SAMPLE_BODY +
+           "\n**What I did** - d.\n\n**Why** - w.\n\n**TLDR** - t.\n", False)
+    expect("a bolded About adrift in the body is caught",
+           "**About** something.\n\n" + SAMPLE_BODY + ("\nfiller\n" * 12) +
+           "\n**What I did** - d.\n\n**Why** - w.\n\n**TLDR** - t.\n", False)
+    expect("a heading-style ## About is accepted",
+           GOOD.replace("**About** the turn counter on your session board",
+                        "## About the turn counter on your session board"), True)
+    expect("About after What I did is caught (order)",
+           GOOD.replace("**About** the turn counter on your session board\n\n", "")
+               .replace("**Why**", "**About** the counter\n\n**Why**"), False)
+
+    # 2026-09-07, rule 2a's window. A tier call on a turn that already did the
+    # work cannot apply to that turn. Both directions asserted, or the check is
+    # just a ban on mentioning /model.
+    _spent = GOOD + "\nGarrett - go down to Sonnet for this. Type `/model sonnet`.\n"
+    expect_t("a tier call claiming a SPENT turn is caught", _spent, {"Bash", "Edit"}, False)
+    expect_t("PLANTED: the same call before any work PASSES", _spent, set(), True)
+    expect_t("PLANTED: aimed at the NEXT task it passes even after work",
+             GOOD + "\nGarrett - go down to Sonnet for the next one. Type `/model sonnet`.\n",
+             {"Bash", "Edit"}, True)
+    expect_t("unknown tools fail open, never trap", _spent, None, True)
+
     for label, rx in (("What I did", WHAT_RE), ("Why", WHY_RE), ("TLDR", TLDR_RE)):
         stripped = "\n".join(
             l for l in GOOD.splitlines() if not rx.search(l))
