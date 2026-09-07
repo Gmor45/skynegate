@@ -141,6 +141,11 @@ BANNED_IN_SUMMARY = [
     # mechanisms to Garrett: "I dont understand the concept of what you did
     # stuff for." The two words below carried the most weight in it.
     "protocol", "mutation",
+    # 2026-09-07. The block itself read "Because you were in the denominator."
+    # Rule 0a requires the block be plain English with no jargon, and rule 0 is
+    # the most-broken rule in the ledger (11 misses, zero recorded wins) — this
+    # is the vocabulary that broke it. "confound" rode along in the same reply.
+    "denominator", "confound",
 ]
 
 # ---------------------------------------------------------------- AI-isms
@@ -172,6 +177,18 @@ BANNED_ANYWHERE = [
     # 2026-09-02, named by Garrett
     r"it'?s worse than (you'?re|you are|that)",
     r"you'?re (absolutely )?right,? and",
+    # 2026-09-07. THE SAME PHRASE, reworded straight past both lines above.
+    # The reply opened "Your instinct was right, and it's worse than you
+    # framed it." Neither matched: "your instinct was right" is not "you're
+    # right", and "worse than you framed it" is not "worse than you're". A ban
+    # a paraphrase walks through is a ban in name only, and this one was walked
+    # through in the reply AND in the artifact published beside it.
+    #
+    # Deliberately NOT widened to "you are right, and" — the fixture directly
+    # below asserts that phrasing PASSES, because a gate that fired on every
+    # agreement would just be banning disagreement.
+    r"\byour \w+ (?:was|is|were) (?:absolutely |completely |exactly |dead )?right[,;]? (?:and|but)\b",
+    r"worse than (?:you (?:framed|put|said|think|thought|described|stated|make))",
     r"and (it|that)'?s the (whole|entire) point\b",
     r"let me (be )?(perfectly |completely )?(clear|honest) (with you )?here\b",
     r"\bi'?ll be honest\b",
@@ -737,6 +754,20 @@ def self_test():
     expect("saying it plainly still passes",
            "You are right, and the cause is one I had already documented. " + GOOD,
            True)
+    # 2026-09-07: the paraphrase that walked past both original patterns. The
+    # VERBATIM sentence is the fixture for the same reason the 2026-09-02 one
+    # is — so this cannot quietly become a check that only ever passes.
+    expect("the 2026-09-07 paraphrase fails",
+           "Your instinct was right, and it's worse than you framed it. " + GOOD,
+           False)
+    # ...and the negatives, which are the half that keeps the widening honest.
+    expect("plain agreement still passes",
+           "You were right about the shallow clone. " + GOOD, True)
+    expect("an ordinary comparison still passes",
+           "This build is worse than the last one. " + GOOD, True)
+    expect("jargon in the BLOCK is caught",
+           SAMPLE_BODY + "\n**What I did**\nfixed the denominator\n"
+           "**Why**\nit was wrong\n**TLDR**\nfixed\n", False)
     for phrase in ("That's a great question. ",
                    "Here's the thing. ",
                    "Let me be honest with you here. ",
