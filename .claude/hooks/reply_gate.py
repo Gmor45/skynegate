@@ -326,6 +326,82 @@ def recommends_new_chat(text):
     return any(re.search(rx, low) for rx in ENDS_THE_CHAT)
 
 
+# Rule 2a: "Mismatch -> say so, first, addressed to him by name, one line, the
+# exact tier, no hedging." Only Garrett can type /model, so the recommendation
+# is the entire implementation -- and it is worthless if he has to guess the
+# command from a tier name.
+#
+# That is exactly how it failed on 2026-09-06 (miss
+# 2026-09-06-told-garrett-to-run-model-sonnet-5-a-mar): the reply named the tier
+# in prose -- "Garrett - drop to Sonnet High for this one" -- and gave no
+# command. He guessed `/model sonnet 5`, the CLI rejected it, and the turn was
+# spent on the correction instead of the work. Rule 2a broken 2x with no
+# recorded win put it into mechanism debt by name; this is what closes it.
+#
+# So the gate reads rule 2a's "exact" as ACTIONABLE: a reply that tells him to
+# change tier must also carry a /model command he can type. It never guesses
+# WHICH tier is right -- no script can know that -- only that the instruction
+# can be followed without a second turn.
+MODEL_FAMILIES = ("opus", "sonnet", "haiku", "fable")
+
+# What `/model` actually accepts: a bare invocation (opens the picker), a family
+# alias, or a full id. Kept as a shape rather than a version list on purpose --
+# a hardcoded roster of ids is the "number with no check" that goes stale.
+VALID_MODEL_ARG = re.compile(
+    r"^(?:%s|claude-[a-z]+-[0-9][0-9a-z-]*)$" % "|".join(MODEL_FAMILIES)
+)
+
+# "go down to Sonnet", "drop to Opus High", "switch up to Haiku" -- an explicit
+# instruction to change tier. Deliberately requires a movement verb AND a family
+# name: merely discussing a model is not a recommendation, and a gate that fired
+# on that is the coarse gate house-rules 21 point 5 forbids.
+CHANGES_TIER = re.compile(
+    r"\b(?:go|drop|switch|move|bump|step|dial)\s+(?:back\s+)?"
+    r"(?:down|up|over)?\s*(?:to|into)\s+(?:%s)\b" % "|".join(MODEL_FAMILIES),
+    re.I,
+)
+
+
+def model_commands(text):
+    """Every /model argument the reply hands Garrett, as written.
+
+    Returns [] when the reply names no /model at all, and [""] for a bare
+    `/model` -- which IS valid (it opens the picker), so the two cases must not
+    be conflated.
+    """
+    out = []
+    for m in re.finditer(r"/model\b([^\n`*_,.;:!?)\]]*)", text or ""):
+        out.append(m.group(1).strip())
+    return out
+
+
+def recommends_tier_change(text):
+    """True when the reply tells Garrett to move to a different model tier."""
+    return bool(CHANGES_TIER.search(text or ""))
+
+
+def unfollowable_tier_change(text):
+    """The rule 2a complaint, or None.
+
+    Fires only when the reply BOTH recommends a tier change AND fails to give a
+    typeable command for it -- either no /model at all, or one whose argument
+    the CLI would reject.
+    """
+    if not recommends_tier_change(text):
+        return None
+    args = model_commands(text)
+    if not args:
+        return ("this reply tells Garrett to change model tier but never gives him the "
+                "command. Rule 2a: only he can type it, so the exact command IS the "
+                "implementation. Add `/model <family>` (or a bare `/model` for the picker)")
+    bad = [a for a in args if a and not VALID_MODEL_ARG.match(a)]
+    if bad and not any(a == "" or VALID_MODEL_ARG.match(a) for a in args):
+        return ("`/model %s` is not something the CLI accepts, so Garrett's command will "
+                "fail and cost a turn. Use a bare `/model` for the picker, or one token: "
+                "%s" % (bad[0], ", ".join(MODEL_FAMILIES)))
+    return None
+
+
 def handoff_ran(entries):
     """True when THIS SESSION has actually invoked the handoff skill.
 
@@ -386,6 +462,12 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True):
             "fix.' Run the handoff skill first, then say it — or drop the "
             "recommendation from this reply"
         )
+
+    # house-rules 2a: a tier recommendation he cannot type is not a
+    # recommendation. See unfollowable_tier_change() for the measured failure.
+    tier = unfollowable_tier_change(text)
+    if tier:
+        problems.append(tier)
 
     # AI-isms: whole reply, not just the block. Reported alongside whatever
     # else is wrong rather than short-circuiting — a reply can be both
@@ -881,6 +963,41 @@ def self_test():
     print("  %-34s %s" % ('rule 3 ignores a mere observation', "ok" if ok else "FAIL"))
     if not ok:
         fails.append('observing the chat is long is not recommending it end')
+
+    # ---- house-rules 2a: a tier change he can actually type ------------------
+    # Replays the real 2026-09-06 miss verbatim, then guards the false-positive
+    # side harder than the firing side (rule 6c): this gate lives in a file that
+    # discusses models constantly, so a version that cried wolf would be turned
+    # off rather than fixed.
+    _real = "Garrett — drop to Sonnet High for this one. It's a pricing lookup, not architecture."
+    ok = unfollowable_tier_change(_real) is not None
+    print("  %-34s %s" % ('2a: the real 2026-09-06 miss fails', "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append('the reply that actually cost a turn must be refused')
+    ok = unfollowable_tier_change(_real + " Type `/model sonnet 5`.") is not None
+    print("  %-34s %s" % ('2a: an invalid /model arg fails', "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("'/model sonnet 5' is what he typed, and the CLI rejects it")
+
+    _quiet2a = [
+        (_real + " Type `/model sonnet`.", "a valid command alongside the tier"),
+        (_real + " Run `/model` and pick from the list.", "bare /model opens the picker"),
+        (_real + " Use `/model claude-sonnet-5`.", "a full model id"),
+        ("Sonnet writes this genre better than Opus does.", "comparing models, not recommending"),
+        ("We could switch to a hosted model later.", "'switch to' with no family name"),
+        ("Only you can change it, with /model — I can't.", "naming the command, no tier change"),
+        ("The 12B is the pick; go down to 8B and it gets worse.", "a size, not a Claude family"),
+    ]
+    bad = [why for t, why in _quiet2a if unfollowable_tier_change(t) is not None]
+    ok = not bad
+    print("  %-34s %s" % ('2a stays silent on 7 negatives', "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append('rule 2a gate fired on: %s -- that gets it switched off' % "; ".join(bad))
+
+    ok = model_commands("run `/model`") == [""] and model_commands("no command here") == []
+    print("  %-34s %s" % ('2a: bare /model != absent /model', "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append('a bare /model is VALID; conflating it with absence inverts the check')
     ok = handoff_ran([]) is True and handoff_ran([{"x": object()}]) is True
     print("  %-34s %s" % ('handoff_ran fails SAFE when unreadable', "ok" if ok else "FAIL"))
     if not ok:
