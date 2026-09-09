@@ -1,6 +1,9 @@
-# claude-bootstrap
+# skynegate
 
-Public on purpose, and deliberately almost empty.
+Public on purpose, and deliberately almost empty. Renamed from
+`claude-bootstrap` on GitHub (2026-09-09) — the old clone URL still redirects
+here, but every pointer in this repo has been repointed to the current name so
+nothing depends on that redirect surviving.
 
 Claude's `Add marketplace` feature only syncs from a **public** repository
 (verified 2026-08-29: a private repo returns *"Marketplace sync failed"*, an
@@ -14,7 +17,14 @@ change is in force on the next session rather than after someone remembers to
 paste it.
 
 Install once, in the Plugins panel: **Add → Add marketplace →**
-`https://github.com/Gmor45/claude-bootstrap`, leaving **Sync automatically** on.
+`https://github.com/Gmor45/skynegate`, leaving **Sync automatically** on.
+
+**If you added this marketplace before the rename, check whether it's still
+listed under the old name.** Some Claude Code surfaces track an installed
+marketplace by the URL you originally typed, not by where it currently
+resolves — if yours still shows `claude-bootstrap`, remove it and re-add
+using the `skynegate` URL above so future syncs aren't relying on GitHub's
+rename redirect.
 
 ## It also carries the reply gate
 
