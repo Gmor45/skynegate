@@ -315,6 +315,34 @@ def reply_text(entries, boundary):
     return "\n".join(out).strip()
 
 
+def latest_prose(entries, boundary):
+    """The NEWEST assistant text block this turn — what Garrett reads last.
+
+    `reply_text` above concatenates every block since the user's message, which
+    is right for the closing block (a property of the whole reply) and wrong for
+    the stock-phrase list. After this gate blocks, the rejected draft is still
+    in the transcript, so a phrase the session has already corrected keeps
+    matching and the re-prompt asks for something no rewrite can achieve. See
+    the CORRECTED note beside the stock check in `evaluate`.
+
+    Falls back to the full turn when there is no text block at all, so a caller
+    can never end up scanning nothing and calling that clean — an empty scan is
+    the shape house-rules 6c names, where absence reads as a pass.
+    """
+    for e in reversed(entries[boundary + 1:]):
+        if e.get("type") != "assistant" or e.get("isSidechain"):
+            continue
+        content = (e.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        blocks = [b.get("text") or "" for b in content
+                  if isinstance(b, dict) and b.get("type") == "text"]
+        joined = "\n".join(blocks).strip()
+        if joined:
+            return joined
+    return reply_text(entries, boundary)
+
+
 # ---------------------------------------------------------------- the check
 
 def words(s):
@@ -492,7 +520,8 @@ def handoff_ran(entries):
     return False
 
 
-def evaluate(text, tools=None, require_block=True, handoff_done=True):
+def evaluate(text, tools=None, require_block=True, handoff_done=True,
+             stock_text=None):
     """Return a list of complaints. Empty list == the reply passes.
 
     Pure and transcript-free so the self-test exercises the real thing rather
@@ -547,9 +576,29 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True):
     # else is wrong rather than short-circuiting — a reply can be both
     # stock-phrased and missing a section, and hearing one at a time wastes a
     # round trip.
-    stock = [rx for rx in BANNED_ANYWHERE if re.search(rx, text, re.I)]
+    #
+    # CORRECTED 2026-09-09: judged on the LATEST prose block, not the whole
+    # turn. `reply_text()` concatenates every assistant text block since the
+    # user's message — which, after this gate blocks, includes the draft it
+    # just rejected. A banned phrase in that draft cannot be removed by
+    # rewriting, so the re-prompt asked for something the session could not
+    # do and reported a phrase no longer present in what Garrett would read.
+    # Measured live: the gate re-fired on "You're right, and" against 1800
+    # accumulated words after a rewrite that contained none of the patterns.
+    # Its own docstring says it must never trap a session; the two-strike
+    # give-up meant it was not a hard trap, but it spent both strikes on an
+    # unachievable instruction.
+    #
+    # The narrowing is deliberate and it is a real narrowing: a phrase in an
+    # early block that is gone from the last one no longer fires. That case
+    # was already reported once, when that block WAS the latest — so the
+    # signal is not lost, it is not repeated. Everything else here still reads
+    # the whole turn, because the closing block is a property of the reply and
+    # not of its final paragraph.
+    scan = text if stock_text is None else stock_text
+    stock = [rx for rx in BANNED_ANYWHERE if re.search(rx, scan, re.I)]
     if stock:
-        shown = [re.search(rx, text, re.I).group(0) for rx in stock[:3]]
+        shown = [re.search(rx, scan, re.I).group(0) for rx in stock[:3]]
         problems.append(
             "stock phrase(s) Garrett has asked you to stop using: %s. He named "
             "these as a tell rather than content — say the same thing in your "
@@ -976,6 +1025,42 @@ def self_test():
         False,
     )
 
+    # ---- the stock scan reads the LATEST prose block, not the whole turn ----
+    # 2026-09-09. After this gate blocks, the rejected draft stays in the
+    # transcript, so reply_text() keeps handing the stock check a phrase the
+    # session has already removed. Measured live: it re-fired on
+    # "You're right, and" against 1800 accumulated words after a rewrite that
+    # contained none of the patterns, asking for something no rewrite could do.
+    _stale = "You're right, and it's worse than you're saying. " + SAMPLE_BODY
+    _fixed = "Rule 28 point 4 is explicit. " + SAMPLE_BODY
+
+    got = evaluate(_stale + "\n" + _fixed, require_block=False, stock_text=_fixed)
+    ok = not any("stock phrase" in c for c in got)
+    print("  %-58s %s" % ("a corrected draft clears the stale phrase",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("a phrase only in a SUPERSEDED draft still fires -- the "
+                     "re-prompt then asks for something no rewrite can achieve")
+
+    # PLANTED PRESENCE (house-rules 6c): the narrowing must not blind the check.
+    # Without this, a stock_text that always came back empty would pass the case
+    # above and every real one too.
+    got = evaluate(_fixed + "\n" + _stale, require_block=False, stock_text=_stale)
+    ok = any("stock phrase" in c for c in got)
+    print("  %-58s %s" % ("...but a phrase in the LATEST block still fires",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("PLANTED case: a banned phrase in the newest block MUST "
+                     "still be caught")
+
+    # and the default is unchanged: no stock_text means scan everything.
+    got = evaluate(_stale, require_block=False)
+    ok = any("stock phrase" in c for c in got)
+    print("  %-58s %s" % ("stock_text omitted still scans the whole reply",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("omitting stock_text must not disable the check")
+
     # ---- require_block=False: only stock phrases and echo-turns still fire --
     # Found 2026-09-03: the block ran on every substantive turn, forever.
     # These assert the escape hatch works, and that it is NARROW -- it must
@@ -1181,7 +1266,8 @@ def run():
         since_last = None if trivial else turns_since_block(path)
         require_block = (not trivial) and since_last >= COOLDOWN_TURNS
         problems = evaluate(text, tools_used(entries, b), require_block=require_block,
-                            handoff_done=handoff_ran(entries))
+                            handoff_done=handoff_ran(entries),
+                            stock_text=latest_prose(entries, b))
         print("reply words: %d" % words(text))
         print("tools this turn: %s" % (sorted(tools_used(entries, b)) or "none"))
         print("cooldown: since_last=%s require_block=%s (this is a DRY RUN -- "
@@ -1217,7 +1303,8 @@ def run():
     require_block = (not trivial) and since_last >= COOLDOWN_TURNS
 
     problems = evaluate(text, tools_used(entries, boundary), require_block=require_block,
-                        handoff_done=handoff_ran(entries))
+                        handoff_done=handoff_ran(entries),
+                        stock_text=latest_prose(entries, boundary))
     if not problems:
         if not trivial:
             record_cooldown(transcript_path, since_last, require_block)
