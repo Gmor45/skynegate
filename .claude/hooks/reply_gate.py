@@ -23,6 +23,22 @@ That is the point of the design: the technical layer stays, and the block makes
 it optional to read. Length was never the complaint — having to read the length
 to find the answer was.
 
+CORRECTION 2026-09-09 — jargon now covers the whole reply; length still does not
+----------------------------------------------------------------------------------
+Garrett asked directly for "a smoother function that simplifies your technical
+answers down," on the belief this gate already did that everywhere. It did not:
+BANNED_JARGON below only ever checked the closing block, on the theory that the
+body's job was completeness and the block's job was translation. Asked plainly
+whether the jargon rule should widen to the whole answer or stay block-only, he
+picked whole answer.
+
+This does NOT reverse the paragraph above it. Length is still free — a long,
+technical investigation is still the right shape for the body. What changed is
+narrower: specific WORDS on BANNED_JARGON are no longer allowed anywhere in the
+reply, the same way BANNED_ANYWHERE (AI-isms, below) has always worked. Explain
+a term in plain words the first time it comes up, rather than using the jargon
+and trusting the block to translate it after the fact.
+
 CORRECTION 2026-09-03 — the block was right, the frequency was not
 --------------------------------------------------------------------
 This gate had no memory across turns: every substantive reply, forever, got
@@ -44,10 +60,12 @@ WHAT IT CANNOT DO, STATED HONESTLY
 ----------------------------------
 No script can tell whether prose is actually simple. This one checks structure
 (sections present, in order), size (the block stays skimmable), and a banned
-vocabulary list *inside the block only*. It will happily pass a badly-written
-summary that has the right shape. That residue is uncovered, and pretending
-otherwise would be worse than leaving it named — a check that passes on the
-real failure converts an open problem into a solved one.
+vocabulary list — checked across the whole reply since 2026-09-09, not just the
+block. It will happily pass a badly-written summary that has the right shape,
+or a reply that dodges the list with an unlisted synonym. That residue is
+uncovered, and pretending otherwise would be worse than leaving it named — a
+check that passes on the real failure converts an open problem into a solved
+one.
 
 FAIL-OPEN, ALWAYS
 -----------------
@@ -121,14 +139,18 @@ try:
 except ValueError:
     COOLDOWN_TURNS = 5
 
-# Banned INSIDE the closing block only. Not a style opinion — these are words
-# that do not survive translation into "explain it like I'm five", so their
-# presence means the block was written for the wrong reader. The body above the
-# block may use any of them freely.
+# Banned throughout the whole reply. Not a style opinion — these are words
+# that do not survive translation into "explain it like I'm five".
+#
+# WIDENED 2026-09-09. Until then this only guarded the closing block, on the
+# theory that the body could stay technical as long as the block translated it
+# afterward. Garrett asked for the whole answer simplified, not told there was
+# a split, and picked "whole answer" when asked directly which he wanted. A
+# word on this list is now wrong wherever it appears, not just at the bottom.
 #
 # GROW THIS LIST. When Garrett asks what a word means, that word belongs here in
 # the same turn. That is the whole maintenance model.
-BANNED_IN_SUMMARY = [
+BANNED_JARGON = [
     "idempotent", "deterministic", "heuristic", "regex", "refactor",
     "frontmatter", "endpoint", "payload", "schema", "boolean", "serialize",
     "deserialize", "instantiate", "middleware", "stdin", "stdout", "jsonl",
@@ -157,10 +179,12 @@ BANNED_IN_SUMMARY = [
 
 # ---------------------------------------------------------------- AI-isms
 #
-# Banned ANYWHERE in the reply, unlike BANNED_IN_SUMMARY above which only
-# guards the closing block. These are not jargon — they are the stock phrases
-# an assistant reaches for to sound engaged, and Garrett clocked them as a
-# tell rather than as content.
+# Also checked anywhere in the reply, same scope as BANNED_JARGON above since
+# 2026-09-09 — but these are not jargon, they are the stock phrases an
+# assistant reaches for to sound engaged, and Garrett clocked them as a tell
+# rather than as content. Kept as a separate list because the two need
+# different matching (regex phrases here, single words there) and different
+# growth rules (see each list's own comment).
 #
 # Ruled 2026-09-02. He had just caught a real failure, and the reply opened
 # "You're right, and it's worse than you're saying." His response: *"you love
@@ -176,7 +200,7 @@ BANNED_IN_SUMMARY = [
 # EACH ENTRY IS A PHRASE HE ACTUALLY SAW. Do not pad this list with plausible
 # AI-isms — a banned list nobody triggered is a list nobody trusts, and it will
 # eventually block a reply for a phrase that was fine. Grow it the same way
-# BANNED_IN_SUMMARY grows: he names one, it lands here in the same turn.
+# BANNED_JARGON grows: he names one, it lands here in the same turn.
 #
 # Escalation, not perfection: the check reports the phrase and asks for a
 # rewrite of that sentence. It never rewrites the reply itself.
@@ -557,6 +581,20 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True):
             % ", ".join('"%s"' % x for x in shown)
         )
 
+    # Jargon: whole reply, not just the block (widened 2026-09-09 — see
+    # BANNED_JARGON's own comment). Checked here, alongside AI-isms above, so
+    # it fires whether or not the closing block is due this turn.
+    low_text = (text or "").lower()
+    jargon_hits = [w for w in BANNED_JARGON if re.search(r"\b%s\b" % re.escape(w), low_text)]
+    if jargon_hits:
+        problems.append(
+            "jargon anywhere in the reply: %s. Garrett asked for the WHOLE "
+            "answer in plain English now, not just the closing block — explain "
+            "the term in ordinary words the first time you use it, or just say "
+            "it plainly instead"
+            % ", ".join(sorted(jargon_hits)[:6])
+        )
+
     if not require_block:
         return problems
 
@@ -629,15 +667,8 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True):
             % (n, SUMMARY_MAX_WORDS)
         )
 
-    low = block_text.lower()
-    hits = [w for w in BANNED_IN_SUMMARY if re.search(r"\b%s\b" % re.escape(w), low)]
-    if hits:
-        problems.append(
-            "jargon inside the closing block: %s. The block is the layer that has "
-            "to work for someone who does not code — say it in ordinary words "
-            "instead (the body above may use them freely)"
-            % ", ".join(sorted(hits)[:6])
-        )
+    # Jargon is now caught earlier, on the whole reply — see the check beside
+    # BANNED_ANYWHERE above. Nothing left to check block-locally here.
     return problems
 
 
@@ -957,11 +988,14 @@ def self_test():
                      "Made the counter idempotent."),
         False,
     )
+    # WAS "jargon in the BODY is allowed", True -- that was the old design.
+    # Widened 2026-09-09: Garrett asked for the whole reply in plain English,
+    # not just the block, so this fixture now asserts the opposite.
     expect(
-        "jargon in the BODY is allowed",
+        "jargon in the BODY is now caught too",
         GOOD.replace("I looked at the four files",
                      "I refactored the regex and the schema payload"),
-        True,
+        False,
     )
     expect(
         "an oversized block is caught",
@@ -1005,6 +1039,16 @@ def self_test():
                           "ok" if ok else "FAIL"))
     if not ok:
         fails.append("require_block=False must still catch echo-only turns, got %r" % got)
+
+    # 2026-09-09: jargon must fire even when the block itself is not due --
+    # the whole point of moving it beside the AI-ism check.
+    jargon_no_block = "I used a regex here. " + GOOD
+    got = evaluate(jargon_no_block, require_block=False)
+    ok = len(got) == 1 and "jargon" in got[0]
+    print("  %-34s %s" % ("...jargon fires even off-cooldown",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("require_block=False must still catch jargon, got %r" % got)
 
     # build_reason must not describe the four-part shape for a require_block=
     # False complaint -- asking for a block nobody required reintroduces the
