@@ -15,10 +15,10 @@
       "category": "productivity",
       "source": {
         "source": "git-subdir",
-        "url": "https://github.com/Gmor45/skynegate.git",
+        "url": "https://github.com/Gmor45/skyne-bridge.git",
         "path": ".claude"
       },
-      "homepage": "https://github.com/Gmor45/skynegate"
+      "homepage": "https://github.com/Gmor45/skyne-bridge"
     },
     {
       "name": "gmor45-skills",
@@ -29,10 +29,10 @@
       "category": "productivity",
       "source": {
         "source": "git-subdir",
-        "url": "https://github.com/Gmor45/skynegate.git",
+        "url": "https://github.com/Gmor45/skyne-bridge.git",
         "path": "gmor45-skills"
       },
-      "homepage": "https://github.com/Gmor45/skynegate"
+      "homepage": "https://github.com/Gmor45/skyne-bridge"
     }
   ]
 }

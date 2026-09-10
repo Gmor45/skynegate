@@ -122,7 +122,7 @@ _HEREDOC = re.compile(r"<<-?\s*(?P<q>['\"]?)(?P<tag>[A-Za-z_][A-Za-z0-9_]*)(?P=q
 
 # --- the golden corpus, shared with the OTHER implementation -----------------
 # House-rules 29 is enforced by two copies of this logic: skyne's
-# scripts/check_shell_shapes.py and skynegate's .claude/hooks/shell_shapes.py.
+# scripts/check_shell_shapes.py and skyne-bridge's .claude/hooks/shell_shapes.py.
 # The hook cannot import the script -- the plugin must run on a machine with
 # only itself installed, and skyne is private -- so the copies can drift.
 #

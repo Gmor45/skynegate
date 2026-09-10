@@ -59,7 +59,7 @@ GLOBS = ("scripts/*.py", "CLAUDE.md", "README.md", "Vault Ops/*.md",
          ".github/workflows/*.yml", ".claude/skills/*/SKILL.md")
 SIBLINGS = ("Gartera-Vault", "skyne", "claude-audit", "cloudflare-deploy", "Tangle",
             "FusterCluck", "claude-usage-hud", "DnD-Scheduler", "claude-bootstrap",
-            "skynegate")
+            "skynegate", "skyne-bridge")
 # Words that appear in every repo and would match everything.
 STOP = {"build", "test", "tests", "script", "scripts", "py", "md", "html", "json",
         "yml", "yaml", "css", "js", "new", "index", "main", "utils", "util", "tmp",
