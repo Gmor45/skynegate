@@ -1,4 +1,12 @@
-# skynegate
+# Skyne-Bridge
+
+**Renamed from `skynegate` on GitHub (2026-09-10).** `skynegate` was itself a
+rename of `claude-bootstrap` the day before — see the paragraph right below,
+kept as written since it was true when it was written. Both old clone URLs
+(`skynegate` and, one hop further back, `claude-bootstrap`) still redirect
+here, and every pointer in this repo (the marketplace manifest, both plugin
+manifests) has been repointed to the current name so nothing depends on
+either redirect surviving.
 
 Public on purpose, and deliberately almost empty. Renamed from
 `claude-bootstrap` on GitHub (2026-09-09) — the old clone URL still redirects
@@ -17,14 +25,14 @@ change is in force on the next session rather than after someone remembers to
 paste it.
 
 Install once, in the Plugins panel: **Add → Add marketplace →**
-`https://github.com/Gmor45/skynegate`, leaving **Sync automatically** on.
+`https://github.com/Gmor45/skyne-bridge`, leaving **Sync automatically** on.
 
-**If you added this marketplace before the rename, check whether it's still
-listed under the old name.** Some Claude Code surfaces track an installed
+**If you added this marketplace before a rename, check whether it's still
+listed under an old name.** Some Claude Code surfaces track an installed
 marketplace by the URL you originally typed, not by where it currently
-resolves — if yours still shows `claude-bootstrap`, remove it and re-add
-using the `skynegate` URL above so future syncs aren't relying on GitHub's
-rename redirect.
+resolves — if yours still shows `claude-bootstrap` or `skynegate`, remove it
+and re-add using the `skyne-bridge` URL above so future syncs aren't relying
+on GitHub's rename redirects.
 
 ## It also carries the reply gate
 
