@@ -26,6 +26,10 @@ jobs:
         run: python3 .claude/hooks/shell_shapes.py --self-test
       - name: Pre-compaction snapshot self-test
         run: python3 .claude/hooks/precompact_snapshot.py --self-test
+      - name: Routine repo/connector gate self-test
+        run: python3 .claude/hooks/routine_sources_gate.py --self-test
+      - name: Mechanism-gap gate self-test
+        run: python3 .claude/hooks/mechanism_gap_gate.py --self-test
       - name: Manifests are valid JSON and register the hook
         run: |
           python3 - <<'PY'
@@ -39,6 +43,11 @@ jobs:
           # fires in every session on every surface. A hook that stops being
           # registered looks exactly like one that never existed.
           assert any("turn_counter.py" in c for c in cmds), "turn counter not registered"
+          # The rule-21 follow-through gate. Same Stop event as reply_gate and
+          # turn_counter, so a group edit that drops one of the three drops it
+          # silently -- this is what makes that loud.
+          assert any("mechanism_gap_gate.py" in c for c in cmds), (
+              "mechanism_gap_gate not registered as a Stop hook")
           # Rule 2's mechanical-task reminder — same argument, a different
           # hook event. A hook removed from hooks.json still passes its own
           # --self-test, so the self-test alone cannot catch de-registration.
@@ -70,6 +79,17 @@ jobs:
           # rather than relying on the group existing.
           assert any("shell_shapes.py" in c for c in pre_cmds), (
               "shell_shapes not registered as a PreToolUse hook")
+          # Garrett, 2026-09-10: "if a hook doesn't trigger and MAKE you add
+          # it, you won't." create_trigger has no repo-attachment parameter at
+          # all, so this hook's only leverage is firing on that exact tool
+          # name -- a de-registration or a matcher typo here is invisible to
+          # the hook's own self-test, same reasoning as every gate above.
+          assert any("routine_sources_gate.py" in c for c in pre_cmds), (
+              "routine_sources_gate not registered as a PreToolUse hook")
+          assert any(
+              g.get("matcher") == "mcp__Claude_Code_Remote__create_trigger"
+              for g in h["hooks"].get("PreToolUse", [])
+          ), "routine_sources_gate must matcher the exact create_trigger tool name"
           # The golden corpus shell_shapes.py is frozen against. It is the only
           # thing that catches a FALSE-POSITIVE drift against skyne's copy of
           # the same detector -- 28 of its 34 rows must stay silent -- and the
