@@ -339,6 +339,34 @@ def reply_text(entries, boundary):
     return "\n".join(out).strip()
 
 
+def latest_prose(entries, boundary):
+    """The NEWEST assistant text block this turn — what Garrett reads last.
+
+    `reply_text` above concatenates every block since the user's message, which
+    is right for the closing block (a property of the whole reply) and wrong for
+    the stock-phrase list. After this gate blocks, the rejected draft is still
+    in the transcript, so a phrase the session has already corrected keeps
+    matching and the re-prompt asks for something no rewrite can achieve. See
+    the CORRECTED note beside the stock check in `evaluate`.
+
+    Falls back to the full turn when there is no text block at all, so a caller
+    can never end up scanning nothing and calling that clean — an empty scan is
+    the shape house-rules 6c names, where absence reads as a pass.
+    """
+    for e in reversed(entries[boundary + 1:]):
+        if e.get("type") != "assistant" or e.get("isSidechain"):
+            continue
+        content = (e.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        blocks = [b.get("text") or "" for b in content
+                  if isinstance(b, dict) and b.get("type") == "text"]
+        joined = "\n".join(blocks).strip()
+        if joined:
+            return joined
+    return reply_text(entries, boundary)
+
+
 # ---------------------------------------------------------------- the check
 
 def words(s):
@@ -496,6 +524,72 @@ def tier_call_on_a_spent_turn(text, tools):
             "been.")
 
 
+# --- house-rules 0a-i, ruled 2026-09-09 --------------------------------------
+# Garrett gave the success criterion himself: "did Garrett have to scroll up
+# the chat?" He types, leaves for another chat, and reads from the BOTTOM when
+# he comes back -- so the wrap-up (the About/What I did/Why/Recommendations/
+# TLDR block above, which is ONE named thing) only does its job on the FINAL
+# message of a turn. Anywhere else it is stale before he reads it.
+#
+# WHY NOTHING ABOVE THIS CATCHES IT. This gate is a Stop hook: it fires once,
+# at turn end, and evaluate() judges the LAST message's text (reply_text()
+# concatenates everything since the user's turn, and the shape checks above
+# just ask whether ONE complete block is present somewhere in that). A second,
+# earlier wrap-up in an intermediate message is invisible to that -- the
+# concatenated text still contains exactly one About-to-TLDR span if only the
+# LAST occurrence is well-formed, so shape alone cannot see the duplicate.
+# Measured 2026-09-09: ~17 wrap-ups across 9 typed messages in one session,
+# against a delivered COOLDOWN_TURNS that required about 2. The largest single
+# shape was the gate's OWN rejection loop -- re-sending a whole reply after a
+# Stop-hook block re-sends its still-intact wrap-up too, six of the seventeen.
+#
+# So this counts wrap-ups PER MESSAGE rather than scanning the concatenated
+# text, which is what makes it able to see a duplicate at all.
+def is_full_wrapup(text):
+    """True when this one message, on its own, carries a complete closing
+    block: About, What I did, Why and TLDR all present, in order.
+
+    Deliberately requires ALL FOUR markers rather than any one of them --
+    ordinary tool narration says "why" constantly, and counting on that alone
+    would fire on prose that is not a wrap-up at all. A message missing a
+    section is a fragment, not a wrap-up; only a complete block counts.
+    """
+    i_about = find_line(text, ABOUT_RE)
+    i_what = find_line(text, WHAT_RE)
+    i_why = find_line(text, WHY_RE)
+    i_tldr = find_line(text, TLDR_RE)
+    if min(i_about, i_what, i_why, i_tldr) < 0:
+        return False
+    return i_about < i_what < i_why < i_tldr
+
+
+def wrapups_this_turn(entries, boundary):
+    """How many of THIS turn's assistant messages each carry a complete
+    wrap-up on their own.
+
+    Scoped to `entries[boundary + 1:]`, the same slice tools_used() and
+    reply_text() already use -- a wrap-up in an EARLIER turn must never count
+    here, or this would refuse turns for something a previous reply did.
+    Sidechain (subagent) output is excluded for the same reason reply_text()
+    excludes it: it never reaches Garrett, so it is not a wrap-up he could
+    have scrolled past. A tool-only message has no text block and is skipped
+    the same way tools_used() skips it.
+    """
+    count = 0
+    for e in entries[boundary + 1:]:
+        if e.get("type") != "assistant" or e.get("isSidechain"):
+            continue
+        content = (e.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        blocks = [b.get("text") or "" for b in content
+                  if isinstance(b, dict) and b.get("type") == "text"]
+        text = "\n".join(blocks).strip()
+        if text and is_full_wrapup(text):
+            count += 1
+    return count
+
+
 def handoff_ran(entries):
     """True when THIS SESSION has actually invoked the handoff skill.
 
@@ -516,7 +610,8 @@ def handoff_ran(entries):
     return False
 
 
-def evaluate(text, tools=None, require_block=True, handoff_done=True):
+def evaluate(text, tools=None, require_block=True, handoff_done=True,
+             stock_text=None, wrapup_count=1):
     """Return a list of complaints. Empty list == the reply passes.
 
     Pure and transcript-free so the self-test exercises the real thing rather
@@ -525,6 +620,12 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True):
     `require_block` is the cooldown's decision, made by the caller — this
     function stays a pure function of its arguments rather than reading the
     clock or the filesystem itself, which is what keeps it self-testable.
+    `wrapup_count` is house-rules 0a-i's count of complete closing blocks this
+    turn, computed by the caller from the transcript (see wrapups_this_turn) —
+    counting requires per-message boundaries this function does not otherwise
+    need, so it stays a plain integer input like the others. Defaults to 1
+    (the required, single wrap-up) so a caller that cannot say never triggers
+    a false refusal.
     """
     problems = []
     if is_trivial(text):
@@ -571,9 +672,29 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True):
     # else is wrong rather than short-circuiting — a reply can be both
     # stock-phrased and missing a section, and hearing one at a time wastes a
     # round trip.
-    stock = [rx for rx in BANNED_ANYWHERE if re.search(rx, text, re.I)]
+    #
+    # CORRECTED 2026-09-09: judged on the LATEST prose block, not the whole
+    # turn. `reply_text()` concatenates every assistant text block since the
+    # user's message — which, after this gate blocks, includes the draft it
+    # just rejected. A banned phrase in that draft cannot be removed by
+    # rewriting, so the re-prompt asked for something the session could not
+    # do and reported a phrase no longer present in what Garrett would read.
+    # Measured live: the gate re-fired on "You're right, and" against 1800
+    # accumulated words after a rewrite that contained none of the patterns.
+    # Its own docstring says it must never trap a session; the two-strike
+    # give-up meant it was not a hard trap, but it spent both strikes on an
+    # unachievable instruction.
+    #
+    # The narrowing is deliberate and it is a real narrowing: a phrase in an
+    # early block that is gone from the last one no longer fires. That case
+    # was already reported once, when that block WAS the latest — so the
+    # signal is not lost, it is not repeated. Everything else here still reads
+    # the whole turn, because the closing block is a property of the reply and
+    # not of its final paragraph.
+    scan = text if stock_text is None else stock_text
+    stock = [rx for rx in BANNED_ANYWHERE if re.search(rx, scan, re.I)]
     if stock:
-        shown = [re.search(rx, text, re.I).group(0) for rx in stock[:3]]
+        shown = [re.search(rx, scan, re.I).group(0) for rx in stock[:3]]
         problems.append(
             "stock phrase(s) Garrett has asked you to stop using: %s. He named "
             "these as a tell rather than content — say the same thing in your "
@@ -593,6 +714,22 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True):
             "the term in ordinary words the first time you use it, or just say "
             "it plainly instead"
             % ", ".join(sorted(jargon_hits)[:6])
+        )
+
+    # house-rules 0a-i, ruled 2026-09-09: ONE wrap-up, and it is the LAST
+    # thing before Garrett can type. Unconditional, like rule 3 and rule 2a
+    # above -- this is about a duplication that already happened in the turn,
+    # not about whether a block is required at all, so the cooldown escape
+    # hatch below must not silence it either.
+    if wrapup_count and wrapup_count > 1:
+        problems.append(
+            "this turn carries %d wrap-ups (the About/What I did/Why/.../TLDR "
+            "block), not one. House-rules 0a-i: it is ONE named thing and it "
+            "belongs on the FINAL message of the turn, nowhere else — an "
+            "earlier one was already stale by the time Garrett could read it. "
+            "Delete every wrap-up except the last, and if a Stop-hook "
+            "rejection sent you back, re-send only the corrected wrap-up, "
+            "never the whole reply" % wrapup_count
         )
 
     if not require_block:
@@ -1010,6 +1147,42 @@ def self_test():
         False,
     )
 
+    # ---- the stock scan reads the LATEST prose block, not the whole turn ----
+    # 2026-09-09. After this gate blocks, the rejected draft stays in the
+    # transcript, so reply_text() keeps handing the stock check a phrase the
+    # session has already removed. Measured live: it re-fired on
+    # "You're right, and" against 1800 accumulated words after a rewrite that
+    # contained none of the patterns, asking for something no rewrite could do.
+    _stale = "You're right, and it's worse than you're saying. " + SAMPLE_BODY
+    _fixed = "Rule 28 point 4 is explicit. " + SAMPLE_BODY
+
+    got = evaluate(_stale + "\n" + _fixed, require_block=False, stock_text=_fixed)
+    ok = not any("stock phrase" in c for c in got)
+    print("  %-58s %s" % ("a corrected draft clears the stale phrase",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("a phrase only in a SUPERSEDED draft still fires -- the "
+                     "re-prompt then asks for something no rewrite can achieve")
+
+    # PLANTED PRESENCE (house-rules 6c): the narrowing must not blind the check.
+    # Without this, a stock_text that always came back empty would pass the case
+    # above and every real one too.
+    got = evaluate(_fixed + "\n" + _stale, require_block=False, stock_text=_stale)
+    ok = any("stock phrase" in c for c in got)
+    print("  %-58s %s" % ("...but a phrase in the LATEST block still fires",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("PLANTED case: a banned phrase in the newest block MUST "
+                     "still be caught")
+
+    # and the default is unchanged: no stock_text means scan everything.
+    got = evaluate(_stale, require_block=False)
+    ok = any("stock phrase" in c for c in got)
+    print("  %-58s %s" % ("stock_text omitted still scans the whole reply",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("omitting stock_text must not disable the check")
+
     # ---- require_block=False: only stock phrases and echo-turns still fire --
     # Found 2026-09-03: the block ran on every substantive turn, forever.
     # These assert the escape hatch works, and that it is NARROW -- it must
@@ -1152,6 +1325,103 @@ def self_test():
     if not ok:
         fails.append('observing the chat is long is not recommending it end')
 
+    # ---- house-rules 0a-i: ONE wrap-up, last message only --------------------
+    # Ruled 2026-09-09. ~17 wrap-ups landed across 9 typed messages in one
+    # session against a delivered cooldown that required about 2, because a
+    # Stop hook only ever sees the LAST message and every earlier wrap-up was
+    # structurally invisible to it. Rule 6c applies: an absence check (no
+    # complaint at count==1) is only proof once a planted TWO-wrap-up case is
+    # shown to refuse.
+
+    def _asst_msg(t):
+        return {"type": "assistant", "message": {"content": [{"type": "text", "text": t}]}}
+
+    _user_turn = {"type": "user", "message": {"content": "go"}}
+
+    # Direct evaluate() cases: the required single wrap-up must stay silent,
+    # and a planted count of two must refuse.
+    ok = evaluate(GOOD, wrapup_count=1) == []
+    print("  %-34s %s" % ("0a-i: a single wrap-up is silent", "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("wrapup_count=1 (the required one) must not be refused")
+    ok = any("wrap-up" in g for g in evaluate(GOOD, wrapup_count=2))
+    print("  %-34s %s" % ("0a-i: PLANTED two wrap-ups refused", "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("wrapup_count=2 MUST be refused -- this is the planted "
+                     "presence rule 6c requires beside the count==1 silence above")
+    ok = evaluate(GOOD, wrapup_count=0) == []
+    print("  %-34s %s" % ("0a-i: zero wrap-ups is silent", "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("wrapup_count=0 (no complete block at all) must not be refused "
+                     "by THIS check -- that is what the shape checks below are for")
+    ok = evaluate(GOOD, wrapup_count=2, require_block=False) != []
+    print("  %-58s %s" % ("0a-i: fires even when require_block=False",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("the count check is unconditional, like rule 3 and 2a -- it "
+                     "must not be silenced by the cooldown escape hatch")
+
+    # is_full_wrapup(): a message needs ALL FOUR markers, in order, to count.
+    ok = is_full_wrapup(GOOD) is True
+    print("  %-34s %s" % ("is_full_wrapup: a real block is one", "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("a genuine About/What/Why/TLDR block must count as a wrap-up")
+    ok = is_full_wrapup(SAMPLE_BODY) is False
+    print("  %-34s %s" % ("is_full_wrapup: plain narration is not",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("ordinary prose with no block must not count as a wrap-up")
+    ok = is_full_wrapup(
+        "**About** the thing\n\n**What I did** x\n\n**Why** y\n") is False
+    print("  %-34s %s" % ("is_full_wrapup: missing TLDR is a fragment",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("a message missing a section is a FRAGMENT, not a wrap-up -- "
+                     "counting fragments would fire on ordinary narration that "
+                     "happens to mention 'why'")
+
+    # wrapups_this_turn(): the transcript-level counter, proven against real
+    # transcript shapes rather than only against the integer it feeds evaluate().
+    ok = wrapups_this_turn([_user_turn, _asst_msg(GOOD), _asst_msg(GOOD)], 0) == 2
+    print("  %-58s %s" % ("wrapups_this_turn: two messages, two wrap-ups",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("two complete blocks in one turn must count as 2 -- this is "
+                     "the retry-loop shape: a Stop-hook rejection followed by a "
+                     "full re-send of the still-intact wrap-up")
+    ok = wrapups_this_turn([_user_turn, _asst_msg(SAMPLE_BODY), _asst_msg(GOOD)], 0) == 1
+    print("  %-58s %s" % ("wrapups_this_turn: narration then one wrap-up is 1",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("plain tool narration before the real wrap-up must not "
+                     "inflate the count")
+    # PLANTED (rule 6c): a wrap-up sitting BEFORE the boundary, in a previous
+    # turn, must never be counted against this one -- otherwise every turn
+    # after a compliant one would look like a repeat offender forever.
+    ok = wrapups_this_turn(
+        [_asst_msg(GOOD), _user_turn, _asst_msg(GOOD)], 1) == 1
+    print("  %-58s %s" % ("wrapups_this_turn: an EARLIER turn's block is not counted",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("PLANTED: a wrap-up before the boundary belongs to a "
+                     "previous turn and must not be added to this turn's count")
+    # A tool-only message (no text block at all) must not count or crash.
+    _tool_only = {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}]}}
+    ok = wrapups_this_turn([_user_turn, _tool_only, _asst_msg(GOOD)], 0) == 1
+    print("  %-58s %s" % ("wrapups_this_turn: a tool-only message is skipped",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("a message with no text block must not affect the count")
+    # A subagent's (sidechain) wrap-up never reaches Garrett and must not count.
+    _sidechain = dict(_asst_msg(GOOD), isSidechain=True)
+    ok = wrapups_this_turn([_user_turn, _sidechain, _asst_msg(GOOD)], 0) == 1
+    print("  %-58s %s" % ("wrapups_this_turn: a sidechain block is excluded",
+                          "ok" if ok else "FAIL"))
+    if not ok:
+        fails.append("a subagent's wrap-up never reaches Garrett and must not "
+                     "be counted toward this turn's total")
+
     # ---- house-rules 2a: a tier change he can actually type ------------------
     # Replays the real 2026-09-06 miss verbatim, then guards the false-positive
     # side harder than the firing side (rule 6c): this gate lives in a file that
@@ -1224,10 +1494,14 @@ def run():
         trivial = is_trivial(text)
         since_last = None if trivial else turns_since_block(path)
         require_block = (not trivial) and since_last >= COOLDOWN_TURNS
+        wrapups = wrapups_this_turn(entries, b)
         problems = evaluate(text, tools_used(entries, b), require_block=require_block,
-                            handoff_done=handoff_ran(entries))
+                            handoff_done=handoff_ran(entries),
+                            stock_text=latest_prose(entries, b),
+                            wrapup_count=wrapups)
         print("reply words: %d" % words(text))
         print("tools this turn: %s" % (sorted(tools_used(entries, b)) or "none"))
+        print("wrap-ups this turn: %d" % wrapups)
         print("cooldown: since_last=%s require_block=%s (this is a DRY RUN -- "
               "state is not written)" % (since_last, require_block))
         print("verdict: %s" % ("BLOCK" if problems else "allow"))
@@ -1261,7 +1535,9 @@ def run():
     require_block = (not trivial) and since_last >= COOLDOWN_TURNS
 
     problems = evaluate(text, tools_used(entries, boundary), require_block=require_block,
-                        handoff_done=handoff_ran(entries))
+                        handoff_done=handoff_ran(entries),
+                        stock_text=latest_prose(entries, boundary),
+                        wrapup_count=wrapups_this_turn(entries, boundary))
     if not problems:
         if not trivial:
             record_cooldown(transcript_path, since_last, require_block)
