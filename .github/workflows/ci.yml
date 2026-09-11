@@ -9,12 +9,20 @@ name: ci
 on:
   pull_request:
 
+# Least privilege: this job only reads the repo. Without this block a
+# workflow gets whatever the repository hands out by default, which can
+# include write access it never uses. repo-standard rule
+# 'least-privilege-permissions', from OpenSSF Scorecard's Token-Permissions
+# probe -- the first external check ever run against this estate.
+permissions:
+  contents: read
+
 jobs:
   reply-gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Gate self-test
