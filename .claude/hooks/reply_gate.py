@@ -809,6 +809,38 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True,
     return problems
 
 
+# Measured 2026-09-11, in Garrett's own words: "Check why you repeated your own
+# answer several times. Thats a failure of the wrap up function."
+#
+# The duplicate-wrap-up detector was NOT the thing that failed. Replayed against
+# that session's transcript, wrapups_this_turn() returned 1, 2, 3 across the
+# three messages and evaluate() correctly produced the wrap-up problem on the
+# second and third. The failure is that NONE of that ever reached the model:
+#
+#   msg 55  wrapups=1  block #1  -> only the jargon problem existed yet
+#   msg 60  wrapups=2  block #2  -> LOCAL_CAP is 2, so this was the last refusal
+#   msg 67  wrapups=3  allowed   -> cap exhausted; the worst message went through
+#
+# So the duplicate becomes visible exactly one refusal AFTER it is created, by
+# which point the two-refusal budget is spent. And the one sentence that would
+# have prevented the whole loop -- re-send only the corrected part, never the
+# whole reply -- lived INSIDE the wrap-up problem text, i.e. in the message the
+# model never got. The cure was written down in the place the disease prevented
+# you from reading.
+#
+# Fixing it by raising LOCAL_CAP would be wrong: the cap exists so a session
+# cannot be trapped in a refusal loop, which is a worse failure than a duplicate
+# block. The re-send loop is caused by refusals in GENERAL, not by duplicates in
+# particular, so the instruction belongs on EVERY refusal, from the first one --
+# before there is any duplicate to report.
+RESEND_RULE = (
+    "\nWhen you fix this, re-send ONLY the corrected part — not the whole "
+    "reply. Re-sending a whole reply re-sends its closing block too, so the "
+    "turn ends up carrying several, which is the very thing this gate refuses "
+    "and is what Garrett sees as the same answer repeated."
+)
+
+
 def build_reason(problems, attempt, require_block=True):
     if not require_block:
         # Not a block-shape ask -- do not describe the four-part structure for
@@ -817,7 +849,8 @@ def build_reason(problems, attempt, require_block=True):
         # this cooldown exists to fix.
         head = ("Do not end this turn yet -- one thing needs fixing first:"
                 if attempt <= 1 else "Still not right:")
-        return "%s\n%s" % (head, "\n".join("  - " + p for p in problems))
+        return "%s\n%s%s" % (head, "\n".join("  - " + p for p in problems),
+                             RESEND_RULE)
     head = (
         "Do not end this turn yet. Garrett reads the closing block and often "
         "nothing else, so a turn without one lands as unreadable."
@@ -837,7 +870,7 @@ def build_reason(problems, attempt, require_block=True):
         "Keep the detailed body above them; do not delete it and do not "
         "summarise it away."
     )
-    return "%s\n%s\n%s" % (head, body, shape)
+    return "%s\n%s\n%s%s" % (head, body, shape, RESEND_RULE)
 
 
 # ---------------------------------------------------------------- counter
@@ -1232,6 +1265,43 @@ def self_test():
                           "ok" if ok else "FAIL"))
     if not ok:
         fails.append("build_reason(require_block=False) must not print the four-part shape")
+
+    # The re-send rule must be on EVERY refusal, including the very first and
+    # including the require_block=False shape. 2026-09-11: it used to live only
+    # inside the duplicate-wrap-up problem text, which a session cannot reach
+    # until it has ALREADY duplicated -- and LOCAL_CAP is 2, so by then the
+    # refusal budget is spent and the worst message is waved through. Both
+    # branches are asserted because the shape branch and the bare branch build
+    # their strings separately and only one was fixed on the first attempt.
+    for rb in (True, False):
+        for attempt in (1, 2):
+            reason = build_reason(["jargon anywhere in the reply: x"], attempt,
+                                  require_block=rb)
+            ok = "re-send ONLY the corrected part" in reason
+            print("  %-34s %s" % ("re-send rule on refusal (block=%s n=%d)"
+                                  % (rb, attempt), "ok" if ok else "FAIL"))
+            if not ok:
+                fails.append("build_reason(require_block=%s, attempt=%d) must carry "
+                             "the re-send rule -- without it the model re-sends the "
+                             "whole reply and duplicates the closing block" % (rb, attempt))
+
+    # THE PLANTED POSITIVE (house-rules 6c). The assertion above is a presence
+    # check, and a presence check passes just as happily on a string that always
+    # contains the phrase for an unrelated reason. Prove the phrase is coming
+    # from RESEND_RULE specifically, so blanking that constant is caught rather
+    # than silently satisfied by some other line.
+    _saved = RESEND_RULE
+    try:
+        globals()["RESEND_RULE"] = ""
+        ok = "re-send ONLY the corrected part" not in build_reason(["x"], 1)
+        print("  %-34s %s" % ("re-send rule comes from RESEND_RULE",
+                              "ok" if ok else "FAIL"))
+        if not ok:
+            fails.append("the re-send rule must come from RESEND_RULE -- with that "
+                         "constant emptied the phrase still appeared, so the check "
+                         "above proves nothing")
+    finally:
+        globals()["RESEND_RULE"] = _saved
 
     # ---- the cooldown state machine, on an isolated HOME ---------------------
     real_home = os.environ.get("HOME")
