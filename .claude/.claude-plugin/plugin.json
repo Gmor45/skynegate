@@ -1,13 +1,13 @@
 {
   "name": "load-house-rules",
-  "version": "1.4.0",
-  "description": "Loads Gmor45's standing operating rules from the private claude-audit repo at session start, enforces the plain-English closing block on every reply, carries /wherewasi \u2014 a plain-English board of every Claude Code chat currently running \u2014 and reminds Claude, once per session, when a prompt looks mechanical enough to hand to the bundled haiku-mechanic subagent instead of the main model. Pointers, not copies, so nothing here drifts out of date.",
+  "version": "1.5.0",
+  "description": "Loads Gmor45's standing operating rules from the private claude-audit repo at session start, enforces the plain-English closing block on every reply, carries /wherewasi \u2014 a plain-English board of every Claude Code chat currently running \u2014 refuses a workflow that would be billed twice for one answer, and reminds Claude, once per session, when a prompt looks mechanical enough to hand to the bundled haiku-mechanic subagent instead of the main model. Pointers, not copies, so nothing here drifts out of date.",
   "author": {
     "name": "Gmor45"
   },
   "repository": "https://github.com/Gmor45/skyne-bridge",
   "homepage": "https://github.com/Gmor45/skyne-bridge",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "keywords": [
     "house-rules",
     "bootstrap",
