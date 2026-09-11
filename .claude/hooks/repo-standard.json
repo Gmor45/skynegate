@@ -1,0 +1,78 @@
+{
+  "_readme": "The base standard every repo in this estate is built to. Garrett asked for it on 2026-09-11, in these words: 'How do I know you've been using best practices to design github repos and python scripts? Copilot found improvements when I asked. Is there a standard you're using as a base?' The honest answer at the time was NO -- there was no written standard, and sessions pattern-matched whatever the repo in front of them already did. That is exactly why an outside tool asked once found things nobody here had: it applied a general standard, and this estate had none to apply. EVERY RULE HERE IS DERIVED FROM A MEASURED FAILURE, never from a generic checklist. The 'found' field names who caught it and when, so a rule can be argued with rather than obeyed. A rule with checkable=true is scored by scripts/check_estate_hygiene.py; a rule with checkable=false is a convention with no mechanism (house-rules 21's weakest tier) and is listed as such rather than pretended to be enforced.",
+  "_fields": {
+    "id": "stable slug, referenced by the checker and the hook",
+    "rule": "what to do, in one line",
+    "why": "the failure it prevents, stated concretely",
+    "found": "who caught it and when -- evidence, so the rule can be argued with",
+    "checkable": "true if a script scores it today; false means convention only",
+    "checker": "what scores it, when checkable"
+  },
+  "version": "1.0.0",
+  "rules": [
+    {
+      "id": "pr-gate",
+      "rule": "Every repo runs at least one check on a pull request.",
+      "why": "Without it, code lands unreviewed by any machine. Nothing else on this list matters if nothing ever runs.",
+      "found": "Estate sweep 2026-09-11: 5 of 10 non-empty repos had no pull_request trigger at all, and 4 ran no automated check of any kind.",
+      "checkable": true,
+      "checker": "check_estate_hygiene.py: pr_gate"
+    },
+    {
+      "id": "pr-not-push",
+      "rule": "A workflow triggers on pull_request. It does NOT also trigger on push to the default branch, unless it genuinely must run post-merge (a deploy, a publish).",
+      "why": "A change checked on its PR and again on the merge is billed twice for one answer, and GitHub rounds every job up to a whole minute with a one-minute floor -- so a 10-second check still costs a full minute each time. House-rules 1's cost table.",
+      "found": "Garrett, 2026-09-11: 'I thought we just did a whole thing about account best practices to save money on actions'. Claude had written push+pull_request into all THREE workflows added that day, having read the opposite convention in Skyne's own ci.yml about an hour earlier. Classic knew-didn't-connect, the miss ledger's largest category.",
+      "checkable": true,
+      "checker": "check_estate_hygiene.py: push_to_default_trigger"
+    },
+    {
+      "id": "selftest-is-run",
+      "rule": "A script exposing --self-test is invoked by something that actually runs.",
+      "why": "A check built and never triggered reads as coverage and is none. House-rules 21 at repo scale.",
+      "found": "Estate sweep 2026-09-11: Skyne-Hearth's check_roles.py and both of Skyne-Quest's checkers each carried a working --self-test that nothing had ever executed.",
+      "checkable": true,
+      "checker": "check_estate_hygiene.py: unrun_selftest"
+    },
+    {
+      "id": "every-language-checked",
+      "rule": "Every language present in the repo has some checker pointed at it, even if only a syntax parse.",
+      "why": "A repo with a checked Python half and an unchecked JavaScript half reads as covered. The unchecked half is where the surprise lives.",
+      "found": "Copilot, 2026-09-10, in Gartera-Vault: a whole TypeScript package that no workflow triggered on and that the existing tests only read as text, never compiled. Re-found by the 2026-09-11 sweep in claude-usage-hud: 103,088 characters of inline JavaScript and four PowerShell scripts, none checked by anything.",
+      "checkable": true,
+      "checker": "check_estate_hygiene.py: uncovered_languages"
+    },
+    {
+      "id": "standard-files",
+      "rule": "A repo carries README, LICENSE, CONTRIBUTING, SECURITY, CODEOWNERS, a pull-request template and .gitignore. A PUBLIC repo without a LICENSE is the urgent case.",
+      "why": "Ordinary furniture that costs nothing and is missing everywhere. Without a licence nobody may legally reuse the code -- including Garrett at work, which is the whole point of the work-install packager.",
+      "found": "Copilot, 2026-09-10, added all of these to Skyne where none existed. The 2026-09-11 sweep then found them present in exactly 1 of 10 repos, and found Skyne-Bridge -- the only PUBLIC repo, whose entire job is to be installed by other surfaces -- carrying no licence at all.",
+      "checkable": true,
+      "checker": "check_estate_hygiene.py: missing_standard_files"
+    },
+    {
+      "id": "no-machine-paths",
+      "rule": "No absolute path to one machine's filesystem in committed code. Let the tool resolve its own location, or read it from the environment.",
+      "why": "Code pinned to one machine runs only there, and nobody notices because it works for whoever wrote it.",
+      "found": "Estate sweep 2026-09-11, Skyne-Quest: dummy/check_dummy.py and brand/check_family.py each hardcoded an absolute browser path that exists only inside a Claude cloud container -- and hardcoded DIFFERENT ones, which is the tell that neither had ever run anywhere else, including on Garrett's own desktop.",
+      "checkable": true,
+      "checker": "check_estate_hygiene.py: machine_paths"
+    },
+    {
+      "id": "duplicated-filters-match",
+      "rule": "When a workflow duplicates its path filters across triggers, a test asserts the copies stay identical.",
+      "why": "GitHub rejects YAML anchors in triggers, so the lists must be duplicated -- and one side can then quietly stop covering a file the other still does.",
+      "found": "Copilot, 2026-09-10, in Gartera-Vault: turned the prose warning into tests/test_ci_path_filters.py, and wrote it so a parser matching NOTHING fails rather than passes.",
+      "checkable": false,
+      "checker": "per-repo test; not scored centrally because the filter lists are repo-specific"
+    },
+    {
+      "id": "check-can-fail",
+      "rule": "A check ships with proof it can fail -- a planted fault its own test requires it to catch.",
+      "why": "An assertion that looked for something wrong, looked at nothing, and found nothing wrong is indistinguishable from a healthy repo.",
+      "found": "Long-standing estate doctrine (house-rules 6c), restated here because it is part of the base standard rather than a Skyne-only habit. Confirmed live 2026-09-11: check_estate_hygiene.py's own first three drafts over-reported by 75, 30 and 11 and were only caught by planted cases.",
+      "checkable": false,
+      "checker": "mutation_gate.py scores this for Skyne's own scripts; not scored for sibling repos"
+    }
+  ]
+}
