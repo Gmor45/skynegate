@@ -74,6 +74,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "mcp__Claude_Code_Remote__create_trigger",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/routine_sources_gate.py\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

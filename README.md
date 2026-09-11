@@ -208,6 +208,50 @@ API call, or from Garrett's own desktop obsidian-git backups — is invisible to
 it. It also fails open on an unparsable command. This narrows the failure; it
 does not close it.
 
+## And it refuses to create a Routine that can't reach the repo it names
+
+`.claude/hooks/routine_sources_gate.py`, a `PreToolUse` hook on
+`mcp__Claude_Code_Remote__create_trigger`. Garrett, 2026-09-10, after being
+told the cloud environment dialog has no field for repos or connectors: "I
+dont feel I should have to tell you hey connect these repos... my guess is
+if a hook doesnt trigger and MAKE you add it, you wont." He is right, and
+it is rule 21 again: `create_trigger` has NO parameter for attaching a
+repo, at all. A Routine made with `create_new_session_on_fire: true` spawns
+a brand-new, repo-less session on every single firing, forever — unless it
+is bound to a `persistent_session_id` naming a session that already has the
+repo. The same gap shows up cheaper on the connector side: nothing stops a
+Routine's own text from saying "check Gmail" while `connectors` is left
+empty.
+
+It refuses a `create_trigger` call whose `name` or `prompt` names one of
+Garrett's repos by a distinctive slug — either spelling, for the three
+renamed 2026-09-10 (Tapestry/Hearth, skynegate/Bridge, FusterCluck/Exceed)
+— while `create_new_session_on_fire` is true and no `persistent_session_id`
+is set, and a call that names a connector-shaped service (Gmail, Google
+Calendar, Google Drive, Spotify) with `connectors` empty. Both refusals name
+the exact fix — set `persistent_session_id`, or list the connector — rather
+than just saying no.
+
+```bash
+python3 .claude/hooks/routine_sources_gate.py --self-test
+python3 .claude/hooks/routine_sources_gate.py --check '{"name":"x","prompt":"pull Gartera-Vault","create_new_session_on_fire":true}'
+```
+
+**No override, on purpose** — same reasoning as `no_push_to_main.py`.
+
+**What it deliberately does not catch.** Bare "skyne" (the estate's own
+brand name) and bare "wedding" (an ordinary word) are excluded from the repo
+list on purpose — both would fire on almost everything. Cloudflare is
+excluded from the connector list because house rules 27 and 31 are in live
+tension over whether Cloudflare work routes through the `cloudflare-deploy`
+repo dispatch or the Cloudflare connector; guessing wrong here would be
+worse than staying silent.
+
+**What it cannot see.** It is a string match over `name` and `prompt`, not a
+semantic read of whether the Routine's task actually needs the repo it
+mentions, or a check that a `persistent_session_id`'s session is the RIGHT
+repo. This narrows the failure; it does not close it.
+
 ## And it keeps Garrett's exact words across a compaction
 
 `.claude/hooks/precompact_snapshot.py`, registered twice — as `PreCompact` and
