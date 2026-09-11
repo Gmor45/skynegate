@@ -88,8 +88,18 @@ TOOL_NAME = "mcp__Claude_Code_Remote__create_trigger"
 
 # Distinctive repo slugs only — never the bare brand word "skyne" (see
 # FALSE POSITIVES above). Matched case-insensitively except "Tangle".
+#
+# CORRECTED 2026-09-11: three of these repos were renamed on GitHub the same
+# week this hook was written (Tapestry->Hearth, skynegate->Bridge,
+# FusterCluck->Exceed) -- same repos, same jobs, old names still redirect and
+# are not broken. Both spellings are matched for each, because a stale prompt
+# or an old habit can still type the old name, and a Routine created against
+# either has the identical missing-repo failure. Skyne-Quest and Skyne-Loom
+# are added too -- they postdate this hook's first draft.
 REPO_SLUGS_CI = [
     "gartera-vault", "gartera vault", "fustercluck", "skynegate",
+    "skyne-exceed", "skyne-bridge", "claude-bootstrap",
+    "skyne-hearth", "skyne-tapestry", "skyne-quest", "skyne-loom",
     "dnd-scheduler", "cloudflare-deploy", "claude-usage-hud",
     "gartera-codex", "gartera-dashboard", "wedding vault",
 ]
@@ -225,6 +235,31 @@ def self_test() -> int:
         "Tangle, capitalised",
     )
     refuse(
+        {"name": "x", "prompt": "Update Skyne-Exceed pins.",
+         "create_new_session_on_fire": True},
+        "current name Skyne-Exceed",
+    )
+    refuse(
+        {"name": "x", "prompt": "Check Skyne-Bridge hook self-tests.",
+         "create_new_session_on_fire": True},
+        "current name Skyne-Bridge",
+    )
+    refuse(
+        {"name": "x", "prompt": "Build the Skyne-Hearth recap page.",
+         "create_new_session_on_fire": True},
+        "current name Skyne-Hearth",
+    )
+    refuse(
+        {"name": "x", "prompt": "Check Skyne-Quest's dummy.",
+         "create_new_session_on_fire": True},
+        "Skyne-Quest",
+    )
+    refuse(
+        {"name": "x", "prompt": "Check skyne-loom for new files.",
+         "create_new_session_on_fire": True},
+        "skyne-loom",
+    )
+    refuse(
         {"name": "x", "prompt": "clone the repo and build it",
          "create_new_session_on_fire": True},
         "generic repo-verb phrase",
@@ -311,7 +346,7 @@ def self_test() -> int:
         for f in fails:
             print("SELF-TEST FAIL:", f)
         return 1
-    print("self-test: 20 cases passed")
+    print("self-test: 25 cases passed")
     return 0
 
 
