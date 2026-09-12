@@ -415,6 +415,42 @@ def recommends_new_chat(text):
     return any(re.search(rx, low) for rx in ENDS_THE_CHAT)
 
 
+# house-rules 1e (loop proposal say-the-merge-backlog): a green PR left
+# unmerged rots into a conflict. #216 was CI-green and mergeable at session
+# close on 08-31 and CONFLICTING by the next morning; #210 and #203 did the
+# same the day before. A session that opens or lands a PR is the one place
+# that decay is still invisible, so it closes by naming this repo's open-PR
+# count and how many are already conflicting.
+#
+# This cannot be a live check -- a hook is a plain script with no MCP tools
+# and no `gh` CLI (confirmed absent on the cloud surface), so it can never
+# ask GitHub what the real numbers are. What it CAN check is the same shape
+# rule 3's handoff check already uses: did the reply say the thing, not
+# whether the thing it said is correct. That is a real narrowing, not the
+# whole rule -- Garrett can still write two made-up numbers and pass this.
+PR_CLOSE_TOOLS = {
+    "mcp__github__create_pull_request",
+    "mcp__github__merge_pull_request",
+}
+
+# A count phrase: a digit next to "open" (PR/PRs implied or named), e.g.
+# "4 open PRs" or "this repo has 6 open". Loose on purpose -- the gate is
+# refuting silence, not grading prose.
+_NAMES_OPEN_COUNT = re.compile(r"\d+\s+open\b", re.I)
+_NAMES_CONFLICT_COUNT = re.compile(r"\bconflict", re.I)
+
+
+def pr_close_missing_backlog_count(text, tools):
+    """True when this turn opened or merged a PR and the reply never says the
+    repo's open-PR count and conflict count. `tools` is the set this turn
+    used; unset or missing PR_CLOSE_TOOLS never fires -- ordinary replies are
+    untouched, the same discriminator the echo check (house-rules 0b) uses."""
+    if not tools or not (tools & PR_CLOSE_TOOLS):
+        return False
+    return not (_NAMES_OPEN_COUNT.search(text or "")
+                and _NAMES_CONFLICT_COUNT.search(text or ""))
+
+
 # Rule 2a: "Mismatch -> say so, first, addressed to him by name, one line, the
 # exact tier, no hedging." Only Garrett can type /model, so the recommendation
 # is the entire implementation -- and it is worthless if he has to guess the
@@ -667,6 +703,18 @@ def evaluate(text, tools=None, require_block=True, handoff_done=True,
     tier = unfollowable_tier_change(text)
     if tier:
         problems.append(tier)
+
+    # house-rules 1e: a PR just opened or merged this turn and the repo's
+    # backlog was never named. See pr_close_missing_backlog_count().
+    if pr_close_missing_backlog_count(text, tools):
+        problems.append(
+            "this turn opened or merged a PR and the reply never names this "
+            "repo's open-PR count and how many of those are conflicting. "
+            "House-rules 1e: a green PR left unmerged rots into a conflict "
+            "within a day, and closing without saying the count is the exact "
+            "gap that let it happen unnoticed. Say both numbers, e.g. "
+            "'4 open PRs in this repo, 1 conflicting'"
+        )
 
     # AI-isms: whole reply, not just the block. Reported alongside whatever
     # else is wrong rather than short-circuiting — a reply can be both
@@ -1089,6 +1137,17 @@ def self_test():
         print("  %-34s %s" % (name, "ok" if ok else "FAIL"))
 
     expect_t("echo-only turn is caught", ECHO_REPLY, {"ReadNotifications"}, False)
+
+    # house-rules 1e: opening or merging a PR without naming the repo's
+    # backlog fails; naming it, or never touching a PR tool, passes.
+    expect_t("PR opened, backlog never named -> fails", GOOD,
+              {"mcp__github__create_pull_request"}, False)
+    expect_t("PR merged, backlog never named -> fails", GOOD,
+              {"mcp__github__merge_pull_request"}, False)
+    _said_it = GOOD + "\n4 open PRs in this repo, 1 conflicting.\n"
+    expect_t("PR opened, backlog named -> passes", _said_it,
+              {"mcp__github__create_pull_request"}, True)
+    expect_t("no PR tool this turn -> untouched", GOOD, {"Read"}, True)
     # ECHO_REPLY is the REAL 150-word reply, kept verbatim as a historical
     # record, so it predates the About line and now fails on that too. The two
     # assertions below were written to prove the ECHO check is what catches it
