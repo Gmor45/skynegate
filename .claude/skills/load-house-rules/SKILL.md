@@ -45,8 +45,10 @@ replies at any point, and the Companion is what survives that.
 **Clone or pull the private repo** into this session's workspace:
 
    ```
-   git clone --depth 1 https://github.com/Gmor45/claude-audit.git
-   # already present? then:  git -C claude-audit pull --ff-only
+   git clone --depth 1 https://github.com/Gmor45/Skyne.git
+   # already present? then:  git -C Skyne pull --ff-only
+   # renamed from claude-audit on 2026-09-04; a clone directory still
+   # named claude-audit is fine and deliberate on Garrett's desktop.
    ```
 
 2. **Read the rules file in full:**

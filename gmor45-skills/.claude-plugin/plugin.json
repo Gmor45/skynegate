@@ -1,7 +1,7 @@
 {
   "name": "gmor45-skills",
   "version": "1.0.0",
-  "description": "Pointer skills for Gartera-Vault work (gartera-connect, gartera, flow, full-dive) that clone the private Gartera-Vault repo and read the real procedure live at session start. Pointers, not copies — so a rule change reaches every surface without anyone re-uploading a skill.",
+  "description": "Pointer skills for Gmor45's repo-carried procedures (gartera-connect, gartera, flow, full-dive, battlemap from Gartera-Vault; handoff and session-digest from Skyne) that clone the private Gartera-Vault repo and read the real procedure live at session start. Pointers, not copies — so a rule change reaches every surface without anyone re-uploading a skill.",
   "author": {
     "name": "Gmor45"
   },
@@ -9,9 +9,11 @@
   "homepage": "https://github.com/Gmor45/skyne-bridge",
   "license": "UNLICENSED",
   "keywords": [
-    "gartera",
     "bootstrap",
+    "gartera",
+    "handoff",
     "pointer",
+    "skyne",
     "vault"
   ]
 }

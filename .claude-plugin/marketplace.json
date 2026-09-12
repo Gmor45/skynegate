@@ -22,7 +22,7 @@
     },
     {
       "name": "gmor45-skills",
-      "description": "Pointer skills for Gartera-Vault work (gartera-connect, gartera, flow, full-dive) that clone the private Gartera-Vault repo and read the real procedure live at session start. Contains none of the vault's content itself.",
+      "description": "Pointer skills for Gmor45's repo-carried procedures (gartera-connect, gartera, flow, full-dive, battlemap from Gartera-Vault; handoff and session-digest from Skyne) that clone the private Gartera-Vault repo and read the real procedure live at session start. Contains none of the vault's content itself.",
       "author": {
         "name": "Gmor45"
       },
